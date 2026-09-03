@@ -183,6 +183,7 @@
   .dock-btn:hover { background: rgba(255,255,255,0.26); }
   .dock-btn:active { transform: scale(0.92); }
   .dock-btn.on { background: rgba(215,25,32,0.8); border-color: rgba(255,255,255,0.3); }
+  .dock-zoom { font-size: 12px; font-weight: 700; font-family: inherit; letter-spacing: -0.02em; }
   .dock-hint { flex: 1; text-align: center; color: rgba(255,255,255,0.82); font-size: 11.5px; padding: 0 4px; }
 
   .cam-info { position: absolute; top: 14px; left: 14px; background: rgba(20,20,20,0.55); backdrop-filter: blur(14px) saturate(160%); border: 1px solid rgba(255,255,255,0.16); color: rgba(255,255,255,0.9); font-size: 10.5px; font-weight: 600; letter-spacing: .02em; padding: 6px 11px; border-radius: 20px; z-index: 6; }
@@ -470,7 +471,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v41</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v42</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -486,6 +487,7 @@
       <div class="cam-info" id="camInfoAgr">—</div>
       <div class="cam-dock">
         <button class="dock-btn" id="btnLintAgr" onclick="toggleLintAgr()" title="Linterna">🔦</button>
+        <button class="dock-btn dock-zoom" id="btnZoomAgr" onclick="cicloZoom('Agr')" title="Zoom" style="display:none">1×</button>
         <div class="dock-hint">Alineá el código dentro del marco</div>
         <button class="dock-btn dock-close" onclick="cerrarCamAgr()" title="Cerrar cámara">✕</button>
       </div>
@@ -508,6 +510,7 @@
       <div class="cam-info" id="camInfoSer">—</div>
       <div class="cam-dock">
         <button class="dock-btn" id="btnLintSer" onclick="toggleLintSer()" title="Linterna" style="display:none">🔦</button>
+        <button class="dock-btn dock-zoom" id="btnZoomSer" onclick="cicloZoom('Ser')" title="Zoom" style="display:none">1×</button>
         <div class="dock-hint">Alineá el código dentro del marco</div>
         <button class="dock-btn dock-close" onclick="cerrarCamSer()" title="Cerrar cámara">✕</button>
       </div>
@@ -850,11 +853,23 @@ async function iniciarCtrlCam(pref, stream) {
   const track = stream.getVideoTracks()[0];
   const settings = await afinarCam(track, pref === 'Ser');
   const caps = track.getCapabilities ? track.getCapabilities() : {};
-  camCtrl[pref] = { track, torch: !!caps.torch, on: false };
+
+  const zoomRango = (caps.zoom && typeof caps.zoom === 'object' && 'max' in caps.zoom
+                     && caps.zoom.max > caps.zoom.min) ? caps.zoom : null;
+  camCtrl[pref] = { track, torch: !!caps.torch, on: false,
+                    zoomRango, zoom: zoomRango ? zoomRango.min : null };
 
   const btnLint = document.getElementById('btnLint' + pref);
   btnLint.style.display = caps.torch ? 'flex' : 'none';
   btnLint.classList.remove('on');
+
+  const btnZoom = document.getElementById('btnZoom' + pref);
+  if (btnZoom) {
+    btnZoom.style.display = zoomRango ? 'flex' : 'none';
+    btnZoom.textContent = '1×';
+    btnZoom.classList.remove('on');
+  }
+
   pintarInfoCam(pref, settings);
   return camCtrl[pref];
 }
@@ -867,6 +882,52 @@ function pintarInfoCam(pref, settings) {
   document.getElementById('camInfo' + pref).textContent = [res, mp, fps].filter(Boolean).join(' · ') || '—';
 }
 
+
+/* ── Zoom ──────────────────────────────────────────────────────────────────
+   Es la única palanca real para subir los píxeles por módulo sin acercarse al
+   punto donde el celular ya no enfoca. A diferencia de torchLevel o brightness,
+   `zoom` SÍ está en MediaTrackCapabilities y los Android modernos lo exponen.
+
+   Se detecta de verdad: si getCapabilities() no trae `zoom`, el botón no
+   aparece. Nada de controles que no hacen nada.
+
+   Los rangos varían mucho entre equipos (1–10 en unos, 100–400 en otros), así
+   que los pasos se calculan como fracciones del rango, no como multiplicadores
+   absolutos. */
+/* Pasos hasta 3× como mucho: más que eso achica tanto el campo que apuntar se
+   vuelve un problema mayor que el que se quería resolver, y el zoom digital ya
+   no aporta detalle real. */
+function pasosZoom(r) {
+  const tope = Math.min(r.max, r.min * 3);
+  return [0, 0.34, 0.67, 1].map(f => r.min + (tope - r.min) * f);
+}
+
+async function aplicarZoom(pref, valor) {
+  const c = camCtrl[pref];
+  if (!c || !c.zoomRango) return;
+  const r = c.zoomRango;
+  const v = Math.min(r.max, Math.max(r.min, valor));
+  try {
+    await c.track.applyConstraints({ advanced: [{ zoom: v }] });
+    c.zoom = v;
+  } catch(e) { return; }
+  const btn = document.getElementById('btnZoom' + pref);
+  if (btn) {
+    const x = r.min > 0 ? (v / r.min) : (1 + v);
+    btn.textContent = (Math.round(x * 10) / 10) + '×';
+    btn.classList.toggle('on', v > r.min);
+  }
+}
+
+function cicloZoom(pref) {
+  const c = camCtrl[pref];
+  if (!c || !c.zoomRango) return;
+  const pasos = pasosZoom(c.zoomRango);
+  const actual = c.zoom != null ? c.zoom : c.zoomRango.min;
+  let i = 0;
+  for (let k = 0; k < pasos.length; k++) if (Math.abs(pasos[k] - actual) < 1e-6) i = k;
+  aplicarZoom(pref, pasos[(i + 1) % pasos.length]);
+}
 async function aplicarLinterna(pref) {
   const c = camCtrl[pref];
   if (!c || !c.track) return false;
@@ -937,9 +998,19 @@ function lectorQR() {
   return lectorQRAgr;
 }
 
+/* El respaldo ZXing solo aporta el caso invertido (medido), así que no vale
+   pagarlo en cada cuadro: correrlo siempre bajaba a la mitad el margen del
+   bucle y la cámara se sentía menos ágil que antes. Se prueba uno de cada
+   cuatro cuadros fallados; si hay un código invertido, entra igual en menos de
+   un segundo. */
+let fallosAgr = 0;
+
 function leerQRAgr(canvas, img) {
   const r = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-  if (r && r.data) return r.data;
+  if (r && r.data) { fallosAgr = 0; return r.data; }
+
+  fallosAgr++;
+  if (fallosAgr % 4 !== 0) return null;
 
   const reader = lectorQR();
   if (!reader) return null;
@@ -1022,7 +1093,7 @@ function cerrarCamAgr() {
   scanIntervalAgr = null;
   camAgrAbierta = false;
   lintAgrActiva = false;
-  camCtrl.Agr = null;
+  camCtrl.Agr = null; fallosAgr = 0;
   document.getElementById('btnLintAgr').classList.remove('on');
   if (streamAgr) { streamAgr.getTracks().forEach(t => t.stop()); streamAgr = null; }
   codigosAgr.clear();
