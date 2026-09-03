@@ -470,7 +470,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v40</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v41</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -954,15 +954,36 @@ function leerQRAgr(canvas, img) {
   return null;
 }
 
+/* La etiqueta de la cámara muestra, además de la resolución, cuántos cuadros
+   por segundo se están ANALIZANDO de verdad. Sirve para distinguir dos fallas
+   que desde afuera se ven igual: si dice 0/s el bucle no está procesando
+   (readyState, cuadros vacíos); si dice 4-5/s el bucle anda y el problema está
+   en la imagen. */
+let diagAgr = { cuadros: 0, saltados: 0, desde: 0 };
+
 function scanAgr() {
   const video = document.getElementById('videoAgr');
   const canvas = document.getElementById('canvasAgr');
   const ctx = canvas.getContext('2d');
   const status = document.getElementById('camStatusAgr');
+  const info = document.getElementById('camInfoAgr');
+  const infoBase = info.textContent;
+
+  diagAgr = { cuadros: 0, saltados: 0, desde: Date.now() };
 
   scanIntervalAgr = setInterval(() => {
-    if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
-    if (!frameVisor(video, canvas, ctx, 0.85, 1100)) return;
+    const seg = (Date.now() - diagAgr.desde) / 1000;
+    if (seg >= 1) {
+      const porSeg = (diagAgr.cuadros / seg).toFixed(1);
+      info.textContent = infoBase + ' · ' + porSeg + '/s'
+        + (diagAgr.saltados ? ' · ' + diagAgr.saltados + ' sin cuadro' : '');
+      diagAgr = { cuadros: 0, saltados: 0, desde: Date.now() };
+    }
+
+    if (video.readyState !== video.HAVE_ENOUGH_DATA) { diagAgr.saltados++; return; }
+    if (!frameVisor(video, canvas, ctx, 0.85, 1100)) { diagAgr.saltados++; return; }
+    diagAgr.cuadros++;
+
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const dato = leerQRAgr(canvas, img);
 
@@ -974,6 +995,7 @@ function scanAgr() {
       const ta = document.getElementById('inputAgr');
       ta.value = ta.value ? ta.value + '\n' + dato : dato;
       extraerAgr(ta.value.trim());
+      actualizarContadorAgr();
       setTimeout(() => {
         if (camAgrAbierta) { status.className = 'cam-status'; status.textContent = 'Apuntá al código'; }
       }, 1600);
