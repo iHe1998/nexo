@@ -269,7 +269,7 @@
   /* ═══════════ MODALES ═══════════ */
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(10,10,10,0.55); backdrop-filter: blur(2px); z-index: 1000; align-items: flex-end; justify-content: center; padding: 0; }
   .modal-overlay.active { display: flex; animation: overlayIn .2s ease; }
-  .modal { position: relative; background: rgba(255,255,255,0.92); backdrop-filter: blur(22px) saturate(180%); border-radius: 20px 20px 0 0; padding: 14px 22px 22px; width: 100%; max-width: 450px; max-height: 88vh; overflow-y: auto; box-shadow: 0 -20px 50px -20px rgba(0,0,0,0.35); animation: sheetUp .32s cubic-bezier(.22,1,.36,1) both; will-change: transform, opacity; }
+  .modal { position: relative; background: rgba(255,255,255,0.92); backdrop-filter: blur(22px) saturate(180%); border-radius: 20px 20px 0 0; padding: 14px 22px 22px; width: 100%; max-width: 450px; max-height: 88vh; overflow-y: auto; box-shadow: 0 -20px 50px -20px rgba(0,0,0,0.35); animation: sheetUp .32s cubic-bezier(.22,1,.36,1); will-change: transform, opacity; }
   .sheet-grab { position: sticky; top: 0; z-index: 6; display: block; width: calc(100% + 44px); margin: -14px -22px 8px; padding: 14px 22px 10px; border: none; background: linear-gradient(rgba(255,255,255,0.96) 58%, rgba(255,255,255,0)); cursor: grab; touch-action: none; -webkit-tap-highlight-color: transparent; }
   .sheet-grab i { display: block; width: 40px; height: 4px; border-radius: 3px; background: rgba(28,28,30,0.18); margin: 0 auto; transition: background .18s ease, width .18s ease; }
   .sheet-grab:hover i { width: 54px; background: rgba(28,28,30,0.32); }
@@ -332,13 +332,18 @@
     display: flex; align-items: center; gap: 14px;
     box-shadow: 0 6px 24px rgba(0,0,0,0.3);
     z-index: 4000; transition: transform 0.3s ease;
-    max-width: calc(100% - 32px); font-size: 13px;
+    max-width: calc(100% - 32px); font-size: 13px; overflow: hidden;
   }
   .update-bar.show { transform: translateX(-50%) translateY(0); }
   .update-txt { font-weight: 600; line-height: 1.4; }
   .update-txt small { display: block; font-weight: 400; opacity: 0.65; font-size: 11px; margin-top: 2px; }
   .update-btn { background: var(--rojo); color: #fff; border: none; border-radius: 7px; padding: 8px 14px; font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
   .update-btn:hover { background: var(--rojo-osc); }
+  .update-btn:disabled { opacity: .55; cursor: default; }
+  .update-txt b { font-weight: 700; }
+  .update-prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,0.14); display: none; }
+  .update-bar.updating .update-prog { display: block; }
+  .update-prog i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--rojo), #ff6b70); transition: width .28s ease; }
 </style>
 </head>
 <body>
@@ -433,7 +438,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v30</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v31</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -544,10 +549,11 @@
 
 <div class="update-bar" id="updateBar">
   <span class="update-txt">
-    Nueva versión disponible
-    <small>Tocá actualizar para aplicarla</small>
+    <b id="updateTitulo">Nueva versión disponible</b>
+    <small id="updateSub">Tocá actualizar para aplicarla</small>
   </span>
-  <button class="update-btn" onclick="aplicarActualizacion()">Actualizar</button>
+  <button class="update-btn" id="updateBtn" onclick="aplicarActualizacion()">Actualizar</button>
+  <div class="update-prog"><i id="updateProgFill"></i></div>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
@@ -1653,10 +1659,13 @@ if ('serviceWorker' in navigator) {
     });
   }).catch(e => console.error('SW error:', e));
 
+  /* En la primera visita no hay controlador todavía: el controllerchange de
+     esa instalación inicial no debe recargar, la página ya está al día. */
+  const habiaControlador = !!navigator.serviceWorker.controller;
+
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (recargando) return;
-    recargando = true;
-    window.location.reload();
+    if (!habiaControlador || recargando) return;
+    finalizarActualizacion();
   });
 }
 
@@ -1665,10 +1674,58 @@ function mostrarBarraActualizacion(worker) {
   document.getElementById('updateBar').classList.add('show');
 }
 
+/* Los archivos nuevos YA se descargaron cuando aparece el aviso: el service
+   worker los bajó en su install. Lo que falta al tocar "Actualizar" es
+   activarlo y recargar, y eso no expone un progreso real que medir. La barra
+   avanza sola y los eventos del worker la empujan, así se ve que algo pasa en
+   vez de un "Actualizando…" congelado. */
+let progTimer = null, progValor = 0, timeoutRecarga = null;
+
+function ponerProgreso(pct) {
+  progValor = Math.max(progValor, Math.min(100, pct));
+  const f = document.getElementById('updateProgFill');
+  if (f) f.style.width = progValor + '%';
+}
+
+function finalizarActualizacion() {
+  clearInterval(progTimer);
+  clearTimeout(timeoutRecarga);
+  ponerProgreso(100);
+  if (recargando) return;
+  recargando = true;
+  setTimeout(() => window.location.reload(), 280);
+}
+
 function aplicarActualizacion() {
-  const btn = document.querySelector('.update-btn');
-  if (btn) btn.textContent = 'Actualizando…';
-  if (swWaiting) swWaiting.postMessage('APLICAR_ACTUALIZACION');
+  const bar = document.getElementById('updateBar');
+  if (bar.classList.contains('updating')) return;   // evitar doble toque
+  bar.classList.add('updating');
+
+  const btn = document.getElementById('updateBtn');
+  /* El botón se esconde: el título y la barra ya dicen lo que pasa. */
+  if (btn) { btn.disabled = true; btn.style.display = 'none'; }
+  document.getElementById('updateTitulo').textContent = 'Actualizando…';
+  document.getElementById('updateSub').textContent = 'La app se reinicia sola';
+
+  ponerProgreso(12);
+  progTimer = setInterval(() => ponerProgreso(progValor + (progValor < 70 ? 4 : 1)), 200);
+
+  if (!swWaiting) {
+    /* Sin worker en espera no hay nada que activar: recargar directo. */
+    finalizarActualizacion();
+    return;
+  }
+
+  swWaiting.addEventListener('statechange', () => {
+    if (swWaiting.state === 'activating') ponerProgreso(55);
+    if (swWaiting.state === 'activated')  ponerProgreso(82);
+  });
+  swWaiting.postMessage('APLICAR_ACTUALIZACION');
+
+  /* Red de seguridad: si el worker no contesta (referencia vieja, o
+     controllerchange que no dispara — pasa en iOS), recargar igual. Sin esto
+     la barra se quedaba en "Actualizando…" para siempre. */
+  timeoutRecarga = setTimeout(finalizarActualizacion, 6000);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1714,49 +1771,68 @@ function initHojas() {
 
     let y0 = 0, dy = 0, t0 = 0, activo = false;
 
+    /* Hacia abajo la hoja sigue al dedo casi 1:1. Hacia arriba se resiste:
+       se mueve cada vez menos y nunca pasa de TOPE_ARRIBA px. */
+    const TOPE_ARRIBA = 58;
+    const desplazamiento = d => d >= 0
+      ? d * 0.9
+      : -TOPE_ARRIBA * (1 - Math.exp(d / TOPE_ARRIBA));
+
     const limpiar = () => {
       modal.style.transition = '';
       modal.style.transform  = '';
-      modal.style.animation  = '';
+    };
+
+    /* Rebote gelatinoso: vuelve pasándose para el otro lado y oscilando cada
+       vez menos, en vez de frenar seco en su lugar. */
+    const rebotar = desde => {
+      limpiar();
+      if (!modal.animate || Math.abs(desde) < 0.5) return;
+      const sobre = -Math.sign(desde) * Math.min(10, Math.abs(desde) * 0.32);
+      modal.animate([
+        { transform: 'translateY(' + desde.toFixed(1) + 'px)' },
+        { transform: 'translateY(' + sobre.toFixed(1) + 'px)', offset: 0.42 },
+        { transform: 'translateY(' + (-sobre * 0.34).toFixed(1) + 'px)', offset: 0.7 },
+        { transform: 'translateY(' + (sobre * 0.12).toFixed(1) + 'px)', offset: 0.87 },
+        { transform: 'translateY(0)' }
+      ], { duration: 520, easing: 'ease-out' });
     };
 
     const soltar = () => {
       if (!activo) return;
       activo = false;
       grab.classList.remove('dragging');
-      modal.style.transition = 'transform .26s cubic-bezier(.22,1,.36,1)';
       const flick = dy > 26 && (Date.now() - t0) < 260;
       if (dy > 90 || flick) {
-        modal.style.transform = 'translateY(110%)';
+        modal.style.transition = 'transform .24s cubic-bezier(.4,0,1,1)';
+        modal.style.transform  = 'translateY(110%)';
         setTimeout(() => { limpiar(); cerrarHoja(ov); }, 200);
       } else {
-        modal.style.transform = 'translateY(0)';
-        setTimeout(limpiar, 280);
+        rebotar(desplazamiento(dy));
       }
     };
 
     grab.addEventListener('pointerdown', e => {
       activo = true; y0 = e.clientY; dy = 0; t0 = Date.now();
       grab.classList.add('dragging');
-      /* sheetUp tiene fill-mode both: si no la apago, pisa el transform inline */
-      modal.style.animation  = 'none';
       modal.style.transition = 'none';
       try { grab.setPointerCapture(e.pointerId); } catch(err) {}
     });
 
     grab.addEventListener('pointermove', e => {
       if (!activo) return;
-      dy = Math.max(0, e.clientY - y0);
-      modal.style.transform = 'translateY(' + (dy * 0.9).toFixed(1) + 'px)';
+      dy = e.clientY - y0;
+      modal.style.transform = 'translateY(' + desplazamiento(dy).toFixed(1) + 'px)';
     });
 
     grab.addEventListener('pointerup', soltar);
     grab.addEventListener('pointercancel', soltar);
 
-    /* Toque corto sobre la solapa = cerrar */
+    /* Toque corto sobre la solapa = cerrar. Con abs() porque dy ahora puede
+       ser negativo al arrastrar hacia arriba. */
     grab.addEventListener('click', e => {
       e.preventDefault();
-      if (dy < 6) { limpiar(); cerrarHoja(ov); }
+      if (Math.abs(dy) < 6) { limpiar(); cerrarHoja(ov); }
     });
 
     /* Tocar el fondo oscuro también cierra, pero solo si la pulsación EMPEZÓ
