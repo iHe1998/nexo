@@ -438,7 +438,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v33</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v34</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1727,9 +1727,11 @@ function aplicarActualizacion() {
   swWaiting.postMessage('APLICAR_ACTUALIZACION');
 
   /* Red de seguridad: si el worker no contesta (referencia vieja, o
-     controllerchange que no dispara — pasa en iOS), recargar igual. Sin esto
+     controllerchange que no dispara, o skipWaiting que no prospera), recargar
+     igual. Con las navegaciones a red primero, esa recarga ya trae el HTML
+     nuevo aunque siga mandando el worker viejo. Sin esto
      la barra se quedaba en "Actualizando…" para siempre. */
-  timeoutRecarga = setTimeout(finalizarActualizacion, 6000);
+  timeoutRecarga = setTimeout(finalizarActualizacion, 3500);
 }
 
 /* ══════════════════════════════════════════════════════════

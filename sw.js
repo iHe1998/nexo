@@ -1,4 +1,4 @@
-const CACHE = 'agrupadora-v33';
+const CACHE = 'agrupadora-v34';
 
 // Propios: si alguno falla, el install falla (son imprescindibles).
 const ASSETS_LOCALES = [
@@ -37,8 +37,45 @@ self.addEventListener('activate', e => {
   );
 });
 
+/* Las navegaciones van a la RED primero, con la caché de respaldo.
+
+   Antes era caché primero para todo, y eso dejaba versiones pegadas: si el
+   worker nuevo se quedaba esperando (skipWaiting no siempre prospera), el
+   worker viejo seguía sirviendo el index.html viejo por más que recargaras.
+   La única salida era cerrar la app entera.
+
+   El corte de 2.5s mantiene la app rápida con señal mala y offline: si la red
+   no contesta a tiempo, se sirve lo cacheado igual. */
+const TIMEOUT_RED = 2500;
+const INDEX = '/Extraccion-agrupadora/index.html';
+
 self.addEventListener('fetch', e => {
-  e.respondWith(caches.match(e.request).then(cached => cached || fetch(e.request)));
+  const req = e.request;
+
+  if (req.mode === 'navigate') {
+    e.respondWith((async () => {
+      try {
+        const corte = new Promise((_, rechazar) =>
+          setTimeout(() => rechazar(new Error('red lenta')), TIMEOUT_RED));
+        const res = await Promise.race([fetch(req.url, { cache: 'no-store' }), corte]);
+        if (res && res.ok) {
+          const copia = res.clone();
+          caches.open(CACHE).then(c => c.put(INDEX, copia)).catch(() => {});
+        }
+        return res;
+      } catch (err) {
+        return (await caches.match(req))
+            || (await caches.match(INDEX))
+            || (await caches.match('/Extraccion-agrupadora/'))
+            || Response.error();
+      }
+    })());
+    return;
+  }
+
+  /* El resto (scripts, íconos, CDN) sigue caché primero: son inmutables por
+     versión y así el arranque es instantáneo. */
+  e.respondWith(caches.match(req).then(cached => cached || fetch(req)));
 });
 
 self.addEventListener('message', e => {
