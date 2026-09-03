@@ -276,7 +276,7 @@
   /* ═══════════ MODALES ═══════════ */
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(10,10,10,0.55); backdrop-filter: blur(2px); z-index: 1000; align-items: flex-end; justify-content: center; padding: 0; }
   .modal-overlay.active { display: flex; animation: overlayIn .2s ease; }
-  .modal { position: relative; background: rgba(255,255,255,0.92); backdrop-filter: blur(22px) saturate(180%); border-radius: 20px 20px 0 0; padding: 14px 22px 22px; width: 100%; max-width: 450px; max-height: 88vh; overflow-y: auto; box-shadow: 0 -20px 50px -20px rgba(0,0,0,0.35); animation: sheetUp .32s cubic-bezier(.22,1,.36,1); will-change: transform, opacity; }
+  .modal { position: relative; background: rgba(255,255,255,0.92); backdrop-filter: blur(22px) saturate(180%); border-radius: 20px 20px 0 0; padding: 14px 22px 22px; width: 100%; max-width: 450px; max-height: 88vh; overflow-y: auto; box-shadow: 0 -20px 50px -20px rgba(0,0,0,0.35); animation: sheetUp .32s cubic-bezier(.22,1,.36,1); will-change: transform, opacity; transform-origin: bottom center; }
   .sheet-grab { position: sticky; top: 0; z-index: 6; display: block; width: calc(100% + 44px); margin: -14px -22px 8px; padding: 14px 22px 10px; border: none; background: linear-gradient(rgba(255,255,255,0.96) 58%, rgba(255,255,255,0)); cursor: grab; touch-action: none; -webkit-tap-highlight-color: transparent; }
   .sheet-grab i { display: block; width: 40px; height: 4px; border-radius: 3px; background: rgba(28,28,30,0.18); margin: 0 auto; transition: background .18s ease, width .18s ease; }
   .sheet-grab:hover i { width: 54px; background: rgba(28,28,30,0.32); }
@@ -456,7 +456,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v36</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v37</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1804,14 +1804,20 @@ function initHojas() {
     grab.innerHTML = '<i></i>';
     modal.prepend(grab);
 
-    let y0 = 0, dy = 0, t0 = 0, activo = false;
+    let y0 = 0, dy = 0, t0 = 0, activo = false, altoHoja = 0;
 
-    /* Hacia abajo la hoja sigue al dedo casi 1:1. Hacia arriba se resiste:
-       se mueve cada vez menos y nunca pasa de TOPE_ARRIBA px. */
+    /* Hacia ABAJO la hoja se desplaza siguiendo al dedo (es el gesto de cerrar).
+       Hacia ARRIBA no se desplaza: se ESTIRA. Con transform-origin en el borde
+       inferior, scaleY hace que crezca hacia arriba con la base clavada al pie
+       de la pantalla, así nunca aparece un hueco entre la hoja y el fondo.
+       El estirón tiene tope asintótico en TOPE_ARRIBA px. */
     const TOPE_ARRIBA = 58;
-    const desplazamiento = d => d >= 0
-      ? d * 0.9
-      : -TOPE_ARRIBA * (1 - Math.exp(d / TOPE_ARRIBA));
+    const estiron = d => TOPE_ARRIBA * (1 - Math.exp(d / TOPE_ARRIBA));  // d<0 -> 0..58
+    const factorEstiron = d => 1 + estiron(d) / (altoHoja || modal.offsetHeight || 400);
+
+    const transformArrastre = d => d >= 0
+      ? 'translateY(' + (d * 0.9).toFixed(1) + 'px)'
+      : 'scaleY(' + factorEstiron(d).toFixed(4) + ')';
 
     const limpiar = () => {
       modal.style.transition = '';
@@ -1819,18 +1825,35 @@ function initHojas() {
     };
 
     /* Rebote gelatinoso: vuelve pasándose para el otro lado y oscilando cada
-       vez menos, en vez de frenar seco en su lugar. */
-    const rebotar = desde => {
+       vez menos, en vez de frenar seco. Hacia abajo oscila la posición; hacia
+       arriba oscila el estirón, comprimiéndose un poco antes de asentarse. */
+    const rebotar = d => {
       limpiar();
-      if (!modal.animate || Math.abs(desde) < 0.5) return;
-      const sobre = -Math.sign(desde) * Math.min(10, Math.abs(desde) * 0.32);
-      modal.animate([
-        { transform: 'translateY(' + desde.toFixed(1) + 'px)' },
-        { transform: 'translateY(' + sobre.toFixed(1) + 'px)', offset: 0.42 },
-        { transform: 'translateY(' + (-sobre * 0.34).toFixed(1) + 'px)', offset: 0.7 },
-        { transform: 'translateY(' + (sobre * 0.12).toFixed(1) + 'px)', offset: 0.87 },
-        { transform: 'translateY(0)' }
-      ], { duration: 520, easing: 'ease-out' });
+      if (!modal.animate || Math.abs(d) < 0.5) return;
+
+      let marcos;
+      if (d >= 0) {
+        const desde = d * 0.9;
+        const sobre = -Math.min(10, desde * 0.32);
+        marcos = [
+          { transform: 'translateY(' + desde.toFixed(1) + 'px)' },
+          { transform: 'translateY(' + sobre.toFixed(1) + 'px)', offset: 0.42 },
+          { transform: 'translateY(' + (-sobre * 0.34).toFixed(1) + 'px)', offset: 0.7 },
+          { transform: 'translateY(' + (sobre * 0.12).toFixed(1) + 'px)', offset: 0.87 },
+          { transform: 'translateY(0)' }
+        ];
+      } else {
+        const k = factorEstiron(d) - 1;
+        const contra = Math.min(0.035, k * 0.32);
+        marcos = [
+          { transform: 'scaleY(' + (1 + k).toFixed(4) + ')' },
+          { transform: 'scaleY(' + (1 - contra).toFixed(4) + ')', offset: 0.42 },
+          { transform: 'scaleY(' + (1 + contra * 0.34).toFixed(4) + ')', offset: 0.7 },
+          { transform: 'scaleY(' + (1 - contra * 0.12).toFixed(4) + ')', offset: 0.87 },
+          { transform: 'scaleY(1)' }
+        ];
+      }
+      modal.animate(marcos, { duration: 520, easing: 'ease-out' });
     };
 
     const soltar = () => {
@@ -1843,12 +1866,15 @@ function initHojas() {
         modal.style.transform  = 'translateY(110%)';
         setTimeout(() => { limpiar(); cerrarHoja(ov); }, 200);
       } else {
-        rebotar(desplazamiento(dy));
+        rebotar(dy);
       }
     };
 
     grab.addEventListener('pointerdown', e => {
       activo = true; y0 = e.clientY; dy = 0; t0 = Date.now();
+      /* Se mide una sola vez acá: leer offsetHeight en cada pointermove
+         obligaría a recalcular layout en pleno arrastre. */
+      altoHoja = modal.offsetHeight;
       grab.classList.add('dragging');
       modal.style.transition = 'none';
       try { grab.setPointerCapture(e.pointerId); } catch(err) {}
@@ -1857,7 +1883,7 @@ function initHojas() {
     grab.addEventListener('pointermove', e => {
       if (!activo) return;
       dy = e.clientY - y0;
-      modal.style.transform = 'translateY(' + desplazamiento(dy).toFixed(1) + 'px)';
+      modal.style.transform = transformArrastre(dy);
     });
 
     grab.addEventListener('pointerup', soltar);
