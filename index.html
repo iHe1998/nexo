@@ -470,7 +470,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v39</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v40</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -910,6 +910,50 @@ async function abrirCamAgr() {
   }
 }
 
+/* Respaldo de lectura para la agrupadora.
+
+   jsQR binariza con un umbral global simple. El HybridBinarizer de ZXing usa
+   umbral adaptativo local, que es justo lo que hace falta con luz despareja,
+   sombras o contraste bajo — el caso de escanear sin linterna. El tercer
+   intento, invertido, cubre etiquetas claras sobre fondo oscuro.
+
+   No suma dependencias: ZXing ya se carga para las series.
+
+   Medido en desktop: jsQR 22ms, ZXing con TRY_HARDER 16ms, sobre un cuadro de
+   918px. Los tres intentos entran holgados en la vuelta de 200ms del loop.
+
+   jsQR va PRIMERO a propósito: es lo que venía funcionando, así que si resuelve
+   se corta ahí y el comportamiento no cambia. Los otros dos solo corren cuando
+   antes no se leía nada. */
+let lectorQRAgr = null;
+function lectorQR() {
+  if (!lectorQRAgr && window.ZXing) {
+    const hints = new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.QR_CODE]);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    lectorQRAgr = new ZXing.MultiFormatReader();
+    lectorQRAgr.setHints(hints);
+  }
+  return lectorQRAgr;
+}
+
+function leerQRAgr(canvas, img) {
+  const r = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+  if (r && r.data) return r.data;
+
+  const reader = lectorQR();
+  if (!reader) return null;
+  const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+  try {
+    return reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum))).getText();
+  } catch(e1) {
+    try {
+      return reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum.invert()))).getText();
+    } catch(e2) {}
+  }
+  return null;
+}
+
 function scanAgr() {
   const video = document.getElementById('videoAgr');
   const canvas = document.getElementById('canvasAgr');
@@ -920,15 +964,15 @@ function scanAgr() {
     if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
     if (!frameVisor(video, canvas, ctx, 0.85, 1100)) return;
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+    const dato = leerQRAgr(canvas, img);
 
-    if (code && code.data && !codigosAgr.has(code.data)) {
-      codigosAgr.add(code.data);
+    if (dato && !codigosAgr.has(dato)) {
+      codigosAgr.add(dato);
       animarTick('tickAgr');
       status.className = 'cam-status ok';
       status.textContent = 'Código agregado';
       const ta = document.getElementById('inputAgr');
-      ta.value = ta.value ? ta.value + '\n' + code.data : code.data;
+      ta.value = ta.value ? ta.value + '\n' + dato : dato;
       extraerAgr(ta.value.trim());
       setTimeout(() => {
         if (camAgrAbierta) { status.className = 'cam-status'; status.textContent = 'Apuntá al código'; }
