@@ -438,7 +438,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v32</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v33</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1652,6 +1652,10 @@ if ('serviceWorker' in navigator) {
         }
       });
     });
+
+    /* Chequeo inmediato al abrir: si no, con la app abierta y a la vista no se
+       entera de una version nueva hasta que la mandes a fondo o pasen 30 min. */
+    reg.update();
 
     setInterval(() => reg.update(), 30 * 60 * 1000);
     document.addEventListener('visibilitychange', () => {
