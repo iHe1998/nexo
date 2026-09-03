@@ -334,6 +334,9 @@
   .hist-row:last-child { margin-bottom: 0; }
   .hist-serie { font-family: 'Courier New', monospace; font-weight: 700; font-size: 13px; color: var(--verde); flex: 1; word-break: break-all; min-width: 110px; }
   .hist-fecha { font-size: 10px; color: #aaa; }
+  /* Alto mínimo: el historial entra con esqueleto y después llega el contenido
+     real. Sin esto la hoja aparecía alta y se achicaba de golpe al reemplazarlo. */
+  #historialBox { min-height: 38vh; }
 
   /* Esqueleto de carga: usa las mismas cajas que el historial real
      (group-box / group-head / hist-row) para que al llegar los datos no salte
@@ -467,7 +470,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v38</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v39</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -790,13 +793,27 @@ function actualizarContadorAgr() {
 
 const camCtrl = { Agr: null, Ser: null };
 
-async function abrirStreamCam() {
-  const intentos = [
-    { facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 2160 } },
-    { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1440 } },
-    { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-    { facingMode: 'environment' }
-  ];
+/* Dos perfiles distintos, fijos por herramienta.
+
+   AGRUPADORA: QR impreso en papel, escaneado a distancia de brazo y sin
+   linterna. Necesita un PISO de frameRate: es una restricción dura que obliga
+   a la cámara a mantener la exposición corta. Sin ese piso, con la luz mediocre
+   de un depósito el sensor alarga la exposición y el pulso de la mano sale
+   movido — el código no se resuelve nunca. Este es el perfil que venía
+   funcionando y no conviene tocarlo.
+
+   SERIES: DataMatrix denso, a centímetros y casi siempre con linterna. Ahí hay
+   luz de sobra y lo que gana es el detalle, así que va a la máxima resolución. */
+async function abrirStreamCam(pref) {
+  const maxDetalle = pref === 'Ser';
+  const intentos = maxDetalle
+    ? [{ facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 2160 } },
+       { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1440 } },
+       { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+       { facingMode: 'environment' }]
+    : [{ facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, min: 30 } },
+       { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } },
+       { facingMode: 'environment' }];
   let err = null;
   for (const video of intentos) {
     try { return await navigator.mediaDevices.getUserMedia({ video }); } catch(e) { err = e; }
@@ -804,24 +821,34 @@ async function abrirStreamCam() {
   throw err || new Error('sin cámara');
 }
 
-/* Sube al máximo real que declara el track y fija foco continuo. */
-async function afinarCam(track) {
+async function afinarCam(track, maxDetalle) {
   const caps = track.getCapabilities ? track.getCapabilities() : {};
   const adv = [];
   if (caps.focusMode && caps.focusMode.includes('continuous')) adv.push({ focusMode: 'continuous' });
-  const c = {};
-  if (caps.width && caps.height) {
+
+  const fpsTop = caps.frameRate && caps.frameRate.max ? Math.min(60, caps.frameRate.max) : 60;
+  const c = maxDetalle ? {} : { frameRate: { ideal: fpsTop } };
+  if (maxDetalle && caps.width && caps.height) {
     c.width  = { ideal: caps.width.max };
     c.height = { ideal: caps.height.max };
   }
   try { await track.applyConstraints(Object.assign({}, c, { advanced: adv })); }
   catch(e) { try { await track.applyConstraints({ advanced: adv }); } catch(e2) {} }
+
+  /* Si aun así la cámara entrega pocos cuadros, se baja la resolución: más vale
+     720p nítido que 1080p movido. */
+  if (!maxDetalle) {
+    const s = track.getSettings ? track.getSettings() : {};
+    if ((s.frameRate || 0) < 50 && (s.width || 0) > 1280) {
+      try { await track.applyConstraints({ width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: fpsTop } }); } catch(e) {}
+    }
+  }
   return track.getSettings ? track.getSettings() : {};
 }
 
 async function iniciarCtrlCam(pref, stream) {
   const track = stream.getVideoTracks()[0];
-  const settings = await afinarCam(track);
+  const settings = await afinarCam(track, pref === 'Ser');
   const caps = track.getCapabilities ? track.getCapabilities() : {};
   camCtrl[pref] = { track, torch: !!caps.torch, on: false };
 
@@ -871,7 +898,7 @@ async function abrirCamAgr() {
   actualizarContadorAgr();
 
   try {
-    streamAgr = await abrirStreamCam();
+    streamAgr = await abrirStreamCam('Agr');
     document.getElementById('videoAgr').srcObject = streamAgr;
     await iniciarCtrlCam('Agr', streamAgr);
     camAgrAbierta = true;
@@ -1093,7 +1120,7 @@ async function abrirCamSer() {
   actualizarContadorSer();
 
   try {
-    streamSer = await abrirStreamCam();
+    streamSer = await abrirStreamCam('Ser');
     document.getElementById('videoSer').srcObject = streamSer;
     await iniciarCtrlCam('Ser', streamSer);
     camSerAbierta = true; scanLoopSer = true;
@@ -1593,6 +1620,14 @@ function cerrarHistorial() {
 
 /* Dos grupos de tres filas: alcanza para que se lea como "está cargando" sin
    inventar más contenido del que suele haber. */
+/* No cambiar el contenido de una hoja mientras está entrando: el alto cambia,
+   y como la hoja está anclada abajo, el salto se ve en pleno movimiento. */
+function esperarEntrada(ov) {
+  const modal = ov && ov.querySelector('.modal');
+  if (!modal || !modal.getAnimations) return Promise.resolve();
+  return Promise.all(modal.getAnimations().map(a => a.finished.catch(() => {})));
+}
+
 function esqueletoHistorial() {
   const fila = '<div class="hist-row"><span class="skel skel-serie"></span><span class="skel skel-hora"></span></div>';
   const grupo = `<div class="group-box">
@@ -1613,6 +1648,7 @@ async function cargarHistorial() {
       .limit(300).get();
     historialCache = [];
     snap.forEach(doc => historialCache.push(doc.data()));
+    await esperarEntrada(document.getElementById("historialOverlay"));
     renderHistorial();
   } catch(e) {
     box.innerHTML = `<div class="empty-state">No se pudo cargar el historial.<br><span style="font-size:11px">${escapeHtml(e.message)}</span></div>`;
