@@ -1,10 +1,18 @@
-const CACHE = 'agrupadora-v28';
-const ASSETS = [
+const CACHE = 'agrupadora-v29';
+
+// Propios: si alguno falla, el install falla (son imprescindibles).
+const ASSETS_LOCALES = [
   '/Extraccion-agrupadora/',
   '/Extraccion-agrupadora/index.html',
-  '/Extraccion-agrupadora/lector-etiquetas.html',
   '/Extraccion-agrupadora/manifest.json',
   '/Extraccion-agrupadora/logo.svg',
+  '/Extraccion-agrupadora/icon-192.png',
+  '/Extraccion-agrupadora/icon-512.png'
+];
+
+// Externos: se cachean "best effort". En el WiFi de Andreani el proxy puede
+// tumbar alguno y no queremos que eso rompa la instalación entera.
+const ASSETS_CDN = [
   'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js',
   'https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js',
   'https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js',
@@ -13,7 +21,12 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+  e.waitUntil(
+    caches.open(CACHE).then(c =>
+      c.addAll(ASSETS_LOCALES)
+        .then(() => Promise.allSettled(ASSETS_CDN.map(u => c.add(u))))
+    )
+  );
 });
 
 self.addEventListener('activate', e => {
