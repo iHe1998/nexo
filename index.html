@@ -57,10 +57,32 @@
   /* El glifo va en trazo blanco directo sobre el rojo, sin placa: la placa
      existía solo porque el wordmark de Andreani es rojo y sobre rojo no se
      leía. Ancho y alto fijos igual que antes — sin ellos el logo se corre. */
+  .hdr-logo {
+    background: none; border: 0; padding: 0;
+    width: 44px; height: 44px;
+    /* Los -4px de margen agrandan el área de toque a 44px sin mover ni el
+       glifo ni el título: sin ellos el texto se corría 4px a la derecha. */
+    margin: 0 -4px;
+    display: grid; place-items: center;
+    flex-shrink: 0; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .hdr-logo:active .hdr-ico { transform: scale(.92); }
   .hdr-ico {
     width: 36px; height: 36px;
-    flex-shrink: 0;
+    transition: transform .18s ease;
   }
+
+  /* Al tocarlo se redibuja. Son los mismos tiempos y las mismas curvas que el
+     arranque: es la misma animación, no una imitación. Las dasharray están en
+     unidades del viewBox y el viewBox es el mismo, así que los valores se
+     reusan tal cual.
+
+     Va condicionada a .dibujando y no suelta, porque si no el glifo se
+     animaría también al cargar la página, tapado detrás del arranque. */
+  .hdr-ico.dibujando .h-caja  { stroke-dasharray: 150; stroke-dashoffset: 150; animation: aTrazo .50s cubic-bezier(.4,0,.2,1) .02s forwards; }
+  .hdr-ico.dibujando .h-caja2 { stroke-dasharray: 110; stroke-dashoffset: 110; animation: aTrazo .40s cubic-bezier(.4,0,.2,1) .25s forwards; }
+  .hdr-ico.dibujando .h-cod   { opacity: 0; animation: aCod .30s cubic-bezier(.2,1.3,.4,1) .46s forwards; transform-box: fill-box; transform-origin: center bottom; }
   .header-txt { min-width: 0; flex: 1; }
   .header-title {
     color: #fff; font-size: 14px; font-weight: 600;
@@ -363,6 +385,9 @@
     .arranque.fuera, .arranque.fuera .arranque-ico,
     .arranque.fuera .arranque-nombre, .arranque.fuera .arranque-bajada { animation-duration: .01ms; }
     .a-caja, .a-caja2 { stroke-dashoffset: 0; }
+    .hdr-ico.dibujando .h-caja, .hdr-ico.dibujando .h-caja2,
+    .hdr-ico.dibujando .h-cod { animation-duration: .01ms; }
+    .hdr-ico.dibujando .h-caja, .hdr-ico.dibujando .h-caja2 { stroke-dashoffset: 0; }
   }
   /* ═══════════ FOOTER ═══════════ */
   footer { text-align: center; padding: 16px 16px calc(76px + env(safe-area-inset-bottom)); font-size: 11px; color: #bbb; }
@@ -490,17 +515,19 @@
 </div>
 
 <header>
-  <svg class="hdr-ico" viewBox="3 0.5 58 58" role="img" aria-label="Nexo"
-       fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 26 32 16l20 10v20L32 56 12 46z"/>
-    <path d="M12 26 32 36l20-10M32 36v20"/>
-    <g fill="#fff" stroke="none">
-      <rect x="22.75" y="3" width="3.5" height="9" rx="1.2"/>
-      <rect x="28.75" y="3" width="2"   height="9" rx="1"/>
-      <rect x="33.25" y="3" width="2"   height="9" rx="1"/>
-      <rect x="37.75" y="3" width="3.5" height="9" rx="1.2"/>
-    </g>
-  </svg>
+  <button class="hdr-logo" onclick="animarLogo()" aria-label="Nexo" title="Nexo">
+    <svg class="hdr-ico" id="hdrIco" viewBox="3 0.5 58 58" aria-hidden="true"
+         fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <path class="h-caja"  d="M12 26 32 16l20 10v20L32 56 12 46z"/>
+      <path class="h-caja2" d="M12 26 32 36l20-10M32 36v20"/>
+      <g class="h-cod" fill="#fff" stroke="none">
+        <rect x="22.75" y="3" width="3.5" height="9" rx="1.2"/>
+        <rect x="28.75" y="3" width="2"   height="9" rx="1"/>
+        <rect x="33.25" y="3" width="2"   height="9" rx="1"/>
+        <rect x="37.75" y="3" width="3.5" height="9" rx="1.2"/>
+      </g>
+    </svg>
+  </button>
   <div class="header-txt">
     <div class="header-title" id="hdrTitle">Extractor de Código Agrupadora</div>
     <div class="header-sub">Operación · CyPe · Planificación</div>
@@ -589,7 +616,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v56</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v57</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -2399,6 +2426,26 @@ function aplicarActualizacion() {
   ponerProgreso(20);
   progTimer = setInterval(() => ponerProgreso(progValor + 12), 90);
   timeoutRecarga = setTimeout(finalizarActualizacion, 450);
+}
+
+/* ══════════════════════════════════════════════════════════
+   LOGO DEL HEADER
+   ══════════════════════════════════════════════════════════ */
+
+/* Redibuja el glifo. Quitar y volver a poner la clase en el mismo cuadro no
+   alcanza: el navegador agrupa los dos cambios y la animación no se reinicia,
+   así que hay que forzar un reflow en el medio.
+
+   OJO: el truco de siempre —leer offsetWidth— NO sirve acá. offsetWidth es de
+   HTMLElement y un <svg> no lo tiene: devuelve undefined, no fuerza nada y la
+   animación queda muda al segundo toque. Verificado en el navegador.
+   getBoundingClientRect() sí existe en SVG y sí fuerza el layout. */
+function animarLogo() {
+  const ico = document.getElementById('hdrIco');
+  if (!ico) return;
+  ico.classList.remove('dibujando');
+  ico.getBoundingClientRect();
+  ico.classList.add('dibujando');
 }
 
 /* ══════════════════════════════════════════════════════════
