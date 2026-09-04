@@ -1,4 +1,4 @@
-const CACHE = 'agrupadora-v50';
+const CACHE = 'agrupadora-v51';
 
 // Propios: si alguno falla, el install falla (son imprescindibles).
 const ASSETS_LOCALES = [
@@ -7,7 +7,10 @@ const ASSETS_LOCALES = [
   '/Extraccion-agrupadora/manifest.json',
   '/Extraccion-agrupadora/logo.svg',
   '/Extraccion-agrupadora/icon-192.png',
-  '/Extraccion-agrupadora/icon-512.png'
+  '/Extraccion-agrupadora/icon-512.png',
+  '/Extraccion-agrupadora/icon-glifo-512.png',
+  '/Extraccion-agrupadora/apple-touch-icon.png',
+  '/Extraccion-agrupadora/favicon.png'
 ];
 
 // Externos: se cachean "best effort". En el WiFi de Andreani el proxy puede
