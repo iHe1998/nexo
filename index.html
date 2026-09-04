@@ -580,7 +580,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v54</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v55</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -2296,56 +2296,67 @@ function copiarHistGrupo(idSafe, lab) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   SERVICE WORKER + AUTOACTUALIZACIÓN
-   ══════════════════════════════════════════════════════════ */
+   SERVICE WORKER + AVISO DE VERSIÓN NUEVA
+   ══════════════════════════════════════════════════════════
 
-let swWaiting = null;
+   El aviso NO depende del estado del service worker, y esto es importante.
+
+   Desde que las navegaciones van a la red primero, abrir la app ya trae el
+   index.html nuevo: el contenido se actualiza solo, sin que el worker
+   intervenga. El worker en espera es otra cosa —el caché para offline— y se
+   activa por su cuenta cuando se cierran todos los clientes.
+
+   Antes el aviso salía cuando existía `reg.waiting`, y eso estaba mal: después
+   de tocar Actualizar la página ya era la nueva, pero el worker seguía
+   esperando (su skipWaiting no siempre prospera), así que `reg.waiting` volvía
+   a existir y el aviso reaparecía una y otra vez.
+
+   Ahora se compara la versión que corre contra la publicada. Si son iguales no
+   hay nada que avisar, sin importar en qué estado esté el worker. */
+
 let recargando = false;
+const VERSION_APP = (document.getElementById('footerVer') || {}).textContent || '';
+
+async function versionPublicada() {
+  try {
+    const r = await fetch('sw.js', { cache: 'no-store' });
+    const m = (await r.text()).match(/agrupadora-(v\d+)/);
+    return m ? m[1] : null;
+  } catch(e) { return null; }
+}
+
+async function chequearVersion() {
+  if (recargando) return;
+  const pub = await versionPublicada();
+  if (pub && VERSION_APP && pub !== VERSION_APP.trim()) mostrarBarraActualizacion(pub);
+}
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Extraccion-agrupadora/sw.js').then(reg => {
-    if (reg.waiting) mostrarBarraActualizacion(reg.waiting);
-
-    reg.addEventListener('updatefound', () => {
-      const nuevo = reg.installing;
-      if (!nuevo) return;
-      nuevo.addEventListener('statechange', () => {
-        if (nuevo.state === 'installed' && navigator.serviceWorker.controller) {
-          mostrarBarraActualizacion(nuevo);
-        }
-      });
-    });
-
-    /* Chequeo inmediato al abrir: si no, con la app abierta y a la vista no se
-       entera de una version nueva hasta que la mandes a fondo o pasen 30 min. */
+    /* Se le sigue pidiendo que se actualice para que el caché de offline se
+       ponga al día, pero ya no se depende de eso para avisar. */
     reg.update();
-
-    setInterval(() => reg.update(), 30 * 60 * 1000);
+    setInterval(() => { reg.update(); chequearVersion(); }, 30 * 60 * 1000);
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) reg.update();
+      if (!document.hidden) { reg.update(); chequearVersion(); }
     });
   }).catch(e => console.error('SW error:', e));
 
-  /* En la primera visita no hay controlador todavía: el controllerchange de
-     esa instalación inicial no debe recargar, la página ya está al día. */
-  const habiaControlador = !!navigator.serviceWorker.controller;
-
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!habiaControlador || recargando) return;
-    finalizarActualizacion();
-  });
+  /* Ya NO se recarga en controllerchange: si el worker se activa con la app
+     abierta, recargar solo cortaría un escaneo a la mitad. La recarga la
+     decide la persona con el botón. */
 }
 
-function mostrarBarraActualizacion(worker) {
-  swWaiting = worker;
-  document.getElementById('updateBar').classList.add('show');
+chequearVersion();
+
+function mostrarBarraActualizacion(version) {
+  const bar = document.getElementById('updateBar');
+  if (bar.classList.contains('updating')) return;
+  const sub = document.getElementById('updateSub');
+  if (sub && version) sub.textContent = 'Versión ' + version + ' · tocá para aplicarla';
+  bar.classList.add('show');
 }
 
-/* Los archivos nuevos YA se descargaron cuando aparece el aviso: el service
-   worker los bajó en su install. Lo que falta al tocar "Actualizar" es
-   activarlo y recargar, y eso no expone un progreso real que medir. La barra
-   avanza sola y los eventos del worker la empujan, así se ve que algo pasa en
-   vez de un "Actualizando…" congelado. */
 let progTimer = null, progValor = 0, timeoutRecarga = null;
 
 function ponerProgreso(pct) {
@@ -2360,41 +2371,25 @@ function finalizarActualizacion() {
   ponerProgreso(100);
   if (recargando) return;
   recargando = true;
-  setTimeout(() => window.location.reload(), 280);
+  setTimeout(() => window.location.reload(), 220);
 }
 
+/* Aplicar es simplemente recargar: la navegación va a la red primero, así que
+   trae el index.html nuevo. No hace falta activar ningún worker ni esperarlo,
+   que es lo que antes podía colgarse. */
 function aplicarActualizacion() {
   const bar = document.getElementById('updateBar');
   if (bar.classList.contains('updating')) return;   // evitar doble toque
   bar.classList.add('updating');
 
   const btn = document.getElementById('updateBtn');
-  /* El botón se esconde: el título y la barra ya dicen lo que pasa. */
   if (btn) { btn.disabled = true; btn.style.display = 'none'; }
   document.getElementById('updateTitulo').textContent = 'Actualizando…';
   document.getElementById('updateSub').textContent = 'La app se reinicia sola';
 
-  ponerProgreso(12);
-  progTimer = setInterval(() => ponerProgreso(progValor + (progValor < 70 ? 4 : 1)), 200);
-
-  if (!swWaiting) {
-    /* Sin worker en espera no hay nada que activar: recargar directo. */
-    finalizarActualizacion();
-    return;
-  }
-
-  swWaiting.addEventListener('statechange', () => {
-    if (swWaiting.state === 'activating') ponerProgreso(55);
-    if (swWaiting.state === 'activated')  ponerProgreso(82);
-  });
-  swWaiting.postMessage('APLICAR_ACTUALIZACION');
-
-  /* Red de seguridad: si el worker no contesta (referencia vieja, o
-     controllerchange que no dispara, o skipWaiting que no prospera), recargar
-     igual. Con las navegaciones a red primero, esa recarga ya trae el HTML
-     nuevo aunque siga mandando el worker viejo. Sin esto
-     la barra se quedaba en "Actualizando…" para siempre. */
-  timeoutRecarga = setTimeout(finalizarActualizacion, 3500);
+  ponerProgreso(20);
+  progTimer = setInterval(() => ponerProgreso(progValor + 12), 90);
+  timeoutRecarga = setTimeout(finalizarActualizacion, 450);
 }
 
 /* ══════════════════════════════════════════════════════════
