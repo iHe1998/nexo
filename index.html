@@ -471,7 +471,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v43</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v44</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1030,7 +1030,52 @@ function lectorQR() {
    un segundo. */
 let fallosAgr = 0;
 
-function leerQRAgr(canvas, img) {
+/* Estira el contraste del cuadro y lo pasa a gris.
+
+   Las etiquetas de agrupadora salen a veces con impresión térmica floja: el
+   negro es en realidad un gris. Medido con QR generados, jsQR deja de leer
+   cuando la tinta pasa de ~140 sobre papel 215, y ZXing tampoco lo salva.
+   Estirando el histograma vuelven a leerse hasta con 20 niveles de diferencia
+   (tinta 185 sobre papel 205).
+
+   Se aplica SIEMPRE, no como respaldo: medido, no perjudica a los que ya leían
+   (normal y con sombra siguen leyendo igual) y evita pagar dos pasadas de jsQR.
+
+   Los percentiles (2% y 98%) en vez de min/max hacen que un píxel quemado o un
+   punto de ruido no arruinen la escala. */
+function estirarContraste(img) {
+  const d = img.data;
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < d.length; i += 16) hist[(d[i]*77 + d[i+1]*150 + d[i+2]*29) >> 8]++;
+
+  let total = 0;
+  for (let i = 0; i < 256; i++) total += hist[i];
+  /* 0.1% y no 2%: el código puede ocupar apenas el 1% del cuadro, así que un
+     corte grande descarta TODA la tinta y deja lo == hi (rango cero, no estira
+     nada). Alcanza con recortar píxeles muertos o un reflejo puntual. */
+  const corte = total * 0.001;
+
+  let lo = 0, hi = 255, acc = 0;
+  for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc > corte) { lo = i; break; } }
+  acc = 0;
+  for (let i = 255; i >= 0; i--) { acc += hist[i]; if (acc > corte) { hi = i; break; } }
+  if (hi - lo < 8) return false;          // ya está bien contrastado o es un cuadro plano
+
+  const esc = 255 / (hi - lo);
+  const lut = new Uint8ClampedArray(256);
+  for (let i = 0; i < 256; i++) lut[i] = (i - lo) * esc;
+  for (let i = 0; i < d.length; i += 4) {
+    const v = lut[(d[i]*77 + d[i+1]*150 + d[i+2]*29) >> 8];
+    d[i] = d[i+1] = d[i+2] = v;
+  }
+  return true;
+}
+
+function leerQRAgr(canvas, ctx, img) {
+  /* El estirado va primero y se devuelve al canvas, así ZXing también lo
+     aprovecha cuando le toca. */
+  if (estirarContraste(img)) ctx.putImageData(img, 0, 0);
+
   const r = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
   if (r && r.data) { fallosAgr = 0; return r.data; }
 
@@ -1081,7 +1126,7 @@ function scanAgr() {
     diagAgr.cuadros++;
 
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const dato = leerQRAgr(canvas, img);
+    const dato = leerQRAgr(canvas, ctx, img);
 
     if (dato && !codigosAgr.has(dato)) {
       codigosAgr.add(dato);
