@@ -458,14 +458,19 @@
 
 <!-- ══════════ ARRANQUE ══════════ -->
 <div class="arranque" id="arranque" aria-hidden="true">
-  <svg class="arranque-ico" viewBox="0 0 64 64" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- El dibujo ocupa x 12..52 e y 3..56, o sea que su centro real es (32, 29.5).
+       El viewBox encuadra ESE centro y no el del lienzo: con 0 0 64 64 el glifo
+       quedaba 2.5 unidades alto. Las barras son simétricas (3.5-2-2-3.5, con
+       separación 2.5) y van de 22.75 a 41.25, así su centro cae en 32 como el
+       de la caja. Antes iban de 24 a 43 y se veían corridas a la derecha. -->
+  <svg class="arranque-ico" viewBox="3 0.5 58 58" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
     <path class="a-caja"  d="M12 26 32 16l20 10v20L32 56 12 46z"/>
     <path class="a-caja2" d="M12 26 32 36l20-10M32 36v20"/>
     <g class="a-cod" fill="#fff" stroke="none">
-      <rect x="24" y="3" width="3.5" height="9" rx="1.2"/>
-      <rect x="30" y="3" width="2"   height="9" rx="1"/>
-      <rect x="35" y="3" width="3.5" height="9" rx="1.2"/>
-      <rect x="41" y="3" width="2"   height="9" rx="1"/>
+      <rect x="22.75" y="3" width="3.5" height="9" rx="1.2"/>
+      <rect x="28.75" y="3" width="2"   height="9" rx="1"/>
+      <rect x="33.25" y="3" width="2"   height="9" rx="1"/>
+      <rect x="37.75" y="3" width="3.5" height="9" rx="1.2"/>
     </g>
   </svg>
   <div class="arranque-nombre">NEXO</div>
@@ -562,7 +567,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v51</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v52</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
