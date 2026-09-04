@@ -472,7 +472,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v45</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v47</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1112,28 +1112,73 @@ function estirarContraste(img) {
   return true;
 }
 
+/* Último intento: desmotear.
+
+   Cuando la cabeza térmica está gastada, cada módulo del QR sale como un puñado
+   de puntos en vez de un bloque sólido. Un desenfoque suave funde esos puntos y
+   devuelve el módulo; después el estirado de contraste lo separa de nuevo en
+   negro y blanco.
+
+   El radio es CRÍTICO y depende del tamaño del módulo en la imagen analizada,
+   que a su vez depende de la distancia. Medido sobre el pipeline real (QR de
+   227px tras el reescalado):
+
+     moteo   sin filtro   r=1    r=1.5   r=2    r=3
+      10%      no lee     LEE     LEE    LEE   no lee
+      20%      no lee     LEE     LEE    LEE   no lee
+      30%      no lee     LEE     LEE    LEE   no lee
+
+   Un radio de 3px, que servía sobre un QR grande aislado, acá destruye los
+   módulos. Se alternan 1 y 2 entre intentos profundos para cubrir distintas
+   distancias sin pagar los dos en la misma vuelta. */
+const RADIOS_DESMOTEO = [1, 2];
+let radioDesmoteo = 0;
+
+function leerDesmoteado(canvas) {
+  try {
+    const radio = RADIOS_DESMOTEO[radioDesmoteo % RADIOS_DESMOTEO.length];
+    radioDesmoteo++;
+    const d = document.createElement('canvas');
+    d.width = canvas.width; d.height = canvas.height;
+    const x = d.getContext('2d');
+    x.filter = 'blur(' + radio + 'px)';
+    x.drawImage(canvas, 0, 0);
+    x.filter = 'none';
+    const im = x.getImageData(0, 0, d.width, d.height);
+    estirarContraste(im);
+    const r = jsQR(im.data, im.width, im.height, { inversionAttempts: 'dontInvert' });
+    return r && r.data ? r.data : null;
+  } catch(e) { return null; }
+}
+
 function leerQRAgr(canvas, ctx, img) {
-  /* El estirado va primero y se devuelve al canvas, así ZXing también lo
-     aprovecha cuando le toca. */
+  /* 1) Estirar contraste SIEMPRE y devolverlo al canvas, así los intentos
+        siguientes también lo aprovechan. Rescata los QR desteñidos. */
   if (estirarContraste(img)) ctx.putImageData(img, 0, 0);
 
+  /* 2) jsQR: el camino rápido, resuelve la enorme mayoría. */
   const r = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
   if (r && r.data) { fallosAgr = 0; return r.data; }
 
+  /* 3) Intento profundo, uno de cada cuatro cuadros fallados: cuesta más y no
+        vale pagarlo siempre. */
   fallosAgr++;
   if (fallosAgr % 4 !== 0) return null;
 
   const reader = lectorQR();
-  if (!reader) return null;
-  const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-  try {
-    return reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum))).getText();
-  } catch(e1) {
+  if (reader) {
+    const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
     try {
-      return reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum.invert()))).getText();
-    } catch(e2) {}
+      return reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum))).getText();
+    } catch(e1) {
+      try {
+        return reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum.invert()))).getText();
+      } catch(e2) {}
+    }
   }
-  return null;
+
+  /* 4) Último recurso: desmotear. Corre igual aunque ZXing no haya cargado. */
+  return leerDesmoteado(canvas);
 }
 
 /* La etiqueta de la cámara muestra, además de la resolución, cuántos cuadros
