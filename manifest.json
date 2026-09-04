@@ -1,12 +1,12 @@
 {
-  "name": "Extractor Agrupadora",
-  "short_name": "Agrupadora",
-  "description": "Extractor de código agrupadora para operaciones Andreani",
+  "name": "Nexo · CyPe",
+  "short_name": "Nexo",
+  "description": "Lector de agrupadoras y números de serie · CyPe Andreani",
   "start_url": "/Extraccion-agrupadora/",
   "scope": "/Extraccion-agrupadora/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f4f4f4",
+  "background_color": "#d71920",
   "theme_color": "#d71920",
   "icons": [
     {

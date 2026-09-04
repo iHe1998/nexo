@@ -8,8 +8,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="CyPe Tools">
-<title>Herramientas CyPe · Andreani</title>
+<meta name="apple-mobile-web-app-title" content="Nexo">
+<title>Nexo · CyPe · Andreani</title>
 <style>
   :root {
     --rojo: #d71920;
@@ -310,6 +310,46 @@
   .empty-icon { font-size: 34px; margin-bottom: 8px; }
   .empty-tip { font-size: 11px; color: #d0a030; margin-top: 10px; }
 
+
+  /* ═══════════ ARRANQUE ═══════════ */
+  /* El fondo es el mismo que background_color del manifest, así la pantalla
+     que dibuja el sistema al abrir la PWA y esta se ven como una sola: no hay
+     salto de color entre una y otra. */
+  .arranque {
+    position: fixed; inset: 0; z-index: 5000;
+    background: var(--rojo);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px;
+    transition: opacity .3s ease;
+  }
+  .arranque.fuera { opacity: 0; pointer-events: none; }
+  .arranque-ico { width: 88px; height: 88px; }
+
+  /* La caja se dibuja de un trazo, después entra el código y por último el
+     nombre. Dura ~1.1s en total: alcanza para que se lea el gesto sin que
+     estorbe a quien abre la app cuarenta veces por turno. */
+  .a-caja  { stroke-dasharray: 150; stroke-dashoffset: 150; animation: aTrazo .60s cubic-bezier(.4,0,.2,1) .05s forwards; }
+  .a-caja2 { stroke-dasharray: 110; stroke-dashoffset: 110; animation: aTrazo .50s cubic-bezier(.4,0,.2,1) .32s forwards; }
+  .a-cod   { opacity: 0; animation: aCod .38s cubic-bezier(.2,1.3,.4,1) .55s forwards; transform-box: fill-box; transform-origin: center bottom; }
+  @keyframes aTrazo { to { stroke-dashoffset: 0; } }
+  @keyframes aCod   { from { opacity: 0; transform: translateY(5px) scale(.6); } to { opacity: 1; transform: none; } }
+
+  .arranque-nombre {
+    font-size: 26px; font-weight: 800; letter-spacing: .2em; color: #fff;
+    margin-right: -.2em;
+    opacity: 0; animation: aTexto .42s ease .68s forwards;
+  }
+  .arranque-bajada {
+    font-size: 9.5px; letter-spacing: .22em; color: rgba(255,255,255,.72);
+    margin: -12px -.22em 0 0;
+    opacity: 0; animation: aTexto .42s ease .8s forwards;
+  }
+  @keyframes aTexto { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .a-caja, .a-caja2, .a-cod, .arranque-nombre, .arranque-bajada { animation-duration: .01ms; }
+    .a-caja, .a-caja2 { stroke-dashoffset: 0; }
+  }
   /* ═══════════ FOOTER ═══════════ */
   footer { text-align: center; padding: 16px 16px calc(76px + env(safe-area-inset-bottom)); font-size: 11px; color: #bbb; }
   footer span { color: var(--rojo); font-weight: 700; }
@@ -414,6 +454,22 @@
 </head>
 <body>
 
+<!-- ══════════ ARRANQUE ══════════ -->
+<div class="arranque" id="arranque" aria-hidden="true">
+  <svg class="arranque-ico" viewBox="0 0 64 64" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path class="a-caja"  d="M12 26 32 16l20 10v20L32 56 12 46z"/>
+    <path class="a-caja2" d="M12 26 32 36l20-10M32 36v20"/>
+    <g class="a-cod" fill="#fff" stroke="none">
+      <rect x="24" y="3" width="3.5" height="9" rx="1.2"/>
+      <rect x="30" y="3" width="2"   height="9" rx="1"/>
+      <rect x="35" y="3" width="3.5" height="9" rx="1.2"/>
+      <rect x="41" y="3" width="2"   height="9" rx="1"/>
+    </g>
+  </svg>
+  <div class="arranque-nombre">NEXO</div>
+  <div class="arranque-bajada">CyPe · ANDREANI</div>
+</div>
+
 <header>
   <img src="logo.svg" alt="Andreani" onerror="this.style.display='none'">
   <div class="header-txt">
@@ -504,7 +560,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v49</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v50</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -2326,6 +2382,16 @@ function aplicarActualizacion() {
    ══════════════════════════════════════════════════════════ */
 
 (function init() {
+  /* Se saca del DOM, no solo se oculta: es un elemento fijo a pantalla completa
+     y dejarlo ahí taparía los toques aunque fuera invisible. */
+  const arranque = document.getElementById('arranque');
+  if (arranque) {
+    setTimeout(() => {
+      arranque.classList.add('fuera');
+      setTimeout(() => arranque.remove(), 320);
+    }, 1150);
+  }
+
   const hash = (location.hash || '').replace('#', '');
   initHojas();
   if (hash === 'series') irA('series');
