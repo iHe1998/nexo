@@ -447,9 +447,36 @@
   .hist-row:last-child { margin-bottom: 0; }
   .hist-serie { font-family: 'Courier New', monospace; font-weight: 700; font-size: 13px; color: var(--verde); flex: 1; word-break: break-all; min-width: 110px; }
   .hist-fecha { font-size: 10px; color: #aaa; }
-  /* Alto mínimo: el historial entra con esqueleto y después llega el contenido
-     real. Sin esto la hoja aparecía alta y se achicaba de golpe al reemplazarlo. */
-  #historialBox { min-height: 38vh; }
+  /* La hoja del historial tiene alto FIJO, no del contenido.
+
+     Antes el alto salía de cuántas lecturas hubiera —medido: 456px con una
+     lectura, 715px con cuarenta— así que la hoja frenaba en un lugar
+     distinto cada vez que se abría, y encima se reacomodaba sola al llegar
+     los datos. Suavizar ese reacomodo no alcanzaba: seguían siendo dos
+     movimientos, primero la entrada y después el crecimiento.
+
+     Con alto fijo entra una sola vez, siempre al mismo lugar, y la lista
+     scrollea adentro. Es lo que hace cualquier hoja que muestra una lista
+     de largo desconocido.
+
+     Con alto fijo el scroll se muda: ya no scrollea la hoja entera sino la
+     lista adentro, así que la solapa, el título y el filtro quedan siempre a
+     la vista. El `min-height: 0` es imprescindible — sin él la lista se
+     queda clavada en su alto natural, no aparece la barra de scroll y las
+     lecturas de más abajo son inalcanzables. Probado con 300 filas.
+
+     La lista NO puede ser flex. Se probó: `.group-box` tiene `overflow:
+     hidden` por las esquinas redondeadas, y eso hace que su alto mínimo
+     automático valga 0, así que como ítem flex se deja aplastar sin límite.
+     Resultado: los grupos se comprimían para entrar, nada desbordaba, no
+     aparecía scroll y con 40 lecturas o más las de abajo eran inalcanzables.
+     Va como bloque, que es lo que desborda y scrollea de verdad.
+
+     El centrado del "sin lecturas" se hace con la clase .vacio, que sí puede
+     ser flex porque ahí adentro hay una sola línea de texto. */
+  #historialOverlay .modal { height: 88vh; display: flex; flex-direction: column; overflow: hidden; }
+  #historialBox { flex: 1; min-height: 0; overflow-y: auto; }
+  #historialBox.vacio { display: flex; flex-direction: column; justify-content: center; }
 
   /* Esqueleto de carga: usa las mismas cajas que el historial real
      (group-box / group-head / hist-row) para que al llegar los datos no salte
@@ -616,7 +643,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v58</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v59</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -2307,6 +2334,7 @@ function esqueletoHistorial() {
 
 async function cargarHistorial() {
   const box = document.getElementById('historialBox');
+  box.classList.remove('vacio');
   box.innerHTML = esqueletoHistorial();
   try {
     const desde = firebase.firestore.Timestamp.fromDate(new Date(Date.now() - HORAS_RETENCION * 60 * 60 * 1000));
@@ -2319,6 +2347,7 @@ async function cargarHistorial() {
     await esperarEntrada(document.getElementById("historialOverlay"));
     filtrarHistorial();
   } catch(e) {
+    box.classList.add('vacio');
     box.innerHTML = `<div class="empty-state">No se pudo cargar el historial.<br><span style="font-size:11px">${escapeHtml(e.message)}</span></div>`;
   }
 }
@@ -2332,9 +2361,11 @@ function renderHistorial() {
   else if (filtro) items = items.filter(i => i.lab === filtro);
 
   if (items.length === 0) {
+    box.classList.add('vacio');
     box.innerHTML = '<div class="empty-state">Sin lecturas registradas para este filtro.</div>';
     return;
   }
+  box.classList.remove('vacio');
 
   const grupos = {};
   items.forEach(i => {
