@@ -471,7 +471,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v42</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v43</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -947,6 +947,31 @@ function frameVisor(video, canvas, ctx, frac, maxLado) {
   return true;
 }
 
+/* La agrupadora analiza el CUADRO COMPLETO, no un recorte centrado.
+
+   El cuadrado de frameVisor cubre apenas el 48% del alto en vertical: un código
+   en el tercio superior o inferior de la pantalla era invisible para el
+   decodificador por más cerca que se lo pusiera. Así trabajaba la v25, que es
+   la versión que leía bien, y frameVisor ni siquiera existía entonces.
+
+   El cuadro se escala para que el lado largo no pase de MAX_LADO_AGR. Eso deja
+   el mismo presupuesto de píxeles que tenía v25 (~920k) pero partiendo de una
+   fuente de 1080p en vez de 720p, así que además llega un poco más limpio.
+
+   Las series NO usan esto: ahí el DataMatrix se escanea de cerca y centrado, el
+   recorte les sirve, y funcionan bien. No unificar. */
+const MAX_LADO_AGR = 1280;
+
+function frameCompleto(video, canvas, ctx, maxLado) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return false;
+  const k = Math.min(1, maxLado / Math.max(vw, vh));
+  canvas.width  = Math.round(vw * k);
+  canvas.height = Math.round(vh * k);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return true;
+}
+
 async function abrirCamAgr() {
   const status = document.getElementById('camStatusAgr');
   status.className = 'cam-status';
@@ -1052,7 +1077,7 @@ function scanAgr() {
     }
 
     if (video.readyState !== video.HAVE_ENOUGH_DATA) { diagAgr.saltados++; return; }
-    if (!frameVisor(video, canvas, ctx, 0.85, 1100)) { diagAgr.saltados++; return; }
+    if (!frameCompleto(video, canvas, ctx, MAX_LADO_AGR)) { diagAgr.saltados++; return; }
     diagAgr.cuadros++;
 
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
