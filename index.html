@@ -616,7 +616,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v57</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v58</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -679,7 +679,7 @@
     <div id="wizardList">
       <div class="modal-title">⚙️ Productos configurados</div>
       <div class="auth-box" id="authBox"></div>
-      <select class="filtro-lab" id="filtroLabConfig" onchange="renderConfigList()">
+      <select class="filtro-lab" id="filtroLabConfig" onchange="filtrarConfig()">
         <option value="">Todos los laboratorios</option>
       </select>
       <div id="configListBox"></div>
@@ -727,7 +727,7 @@
 <div class="modal-overlay" id="historialOverlay">
   <div class="modal">
     <div class="modal-title">📊 Historial · últimas 8 hs</div>
-    <select class="filtro-lab" id="filtroLabHist" onchange="renderHistorial()">
+    <select class="filtro-lab" id="filtroLabHist" onchange="filtrarHistorial()">
       <option value="">Todos los laboratorios</option>
     </select>
     <div id="historialBox"></div>
@@ -2144,6 +2144,12 @@ function cancelarWizard() {
   wizardPaso('list');
 }
 
+
+/* Mismo motivo que filtrarHistorial: cambiar el filtro reencuadra la hoja. */
+function filtrarConfig() {
+  cambiarContenidoHoja(document.getElementById('settingsOverlay'), renderConfigList);
+}
+
 function renderConfigList() {
   const box = document.getElementById('configListBox');
   if (!box) return;
@@ -2251,6 +2257,45 @@ function esperarEntrada(ov) {
   return Promise.all(modal.getAnimations().map(a => a.finished.catch(() => {})));
 }
 
+/* Cambia el contenido de una hoja YA ABIERTA llevando el alto de un valor al
+   otro en vez de saltar de golpe.
+
+   Sin esto el historial pega un tirón al pasar del esqueleto al contenido
+   real, porque el esqueleto son siempre dos grupos de tres filas y lo que
+   llega después mide lo que mida. Medido en el sitio en vivo, con la hoja
+   abierta a 375x812:
+
+     esqueleto ............ 479px
+     con 1 lectura ........ 456px   ->  -23px
+     con 40 lecturas ...... 715px   -> +236px
+
+   O sea que en un turno con datos la hoja daba un salto de 236px de una
+   pasada. El esqueleto no lo puede evitar: no hay forma de saber cuánto va a
+   medir el contenido antes de tenerlo.
+
+   Se anima el alto y no un transform: un scaleY deformaría el texto. Cuesta
+   layout por cuadro, pero la hoja tiene pocas filas y dura 300ms. */
+function cambiarContenidoHoja(ov, cambiar) {
+  const modal = ov && ov.querySelector('.modal');
+  if (!modal || !modal.animate) { cambiar(); return; }
+
+  const antes = modal.offsetHeight;
+  cambiar();
+  const despues = modal.offsetHeight;
+  if (Math.abs(despues - antes) < 2) return;
+
+  modal.animate(
+    [{ height: antes + 'px' }, { height: despues + 'px' }],
+    { duration: 300, easing: 'cubic-bezier(.3,.12,.22,1)' }
+  );
+}
+
+/* El filtro del historial pasa por acá para que reencuadrar la hoja también
+   sea suave, no solo la primera carga. */
+function filtrarHistorial() {
+  cambiarContenidoHoja(document.getElementById('historialOverlay'), renderHistorial);
+}
+
 function esqueletoHistorial() {
   const fila = '<div class="hist-row"><span class="skel skel-serie"></span><span class="skel skel-hora"></span></div>';
   const grupo = `<div class="group-box">
@@ -2272,7 +2317,7 @@ async function cargarHistorial() {
     historialCache = [];
     snap.forEach(doc => historialCache.push(doc.data()));
     await esperarEntrada(document.getElementById("historialOverlay"));
-    renderHistorial();
+    filtrarHistorial();
   } catch(e) {
     box.innerHTML = `<div class="empty-state">No se pudo cargar el historial.<br><span style="font-size:11px">${escapeHtml(e.message)}</span></div>`;
   }
