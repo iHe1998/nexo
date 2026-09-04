@@ -54,12 +54,11 @@
     flex-shrink: 0;
     z-index: 300;
   }
-  header img {
-    height: 34px; width: 106px;
-    object-fit: contain;
-    background: #fff;
-    padding: 4px 8px;
-    border-radius: 5px;
+  /* El glifo va en trazo blanco directo sobre el rojo, sin placa: la placa
+     existía solo porque el wordmark de Andreani es rojo y sobre rojo no se
+     leía. Ancho y alto fijos igual que antes — sin ellos el logo se corre. */
+  .hdr-ico {
+    width: 36px; height: 36px;
     flex-shrink: 0;
   }
   .header-txt { min-width: 0; flex: 1; }
@@ -491,7 +490,17 @@
 </div>
 
 <header>
-  <img src="logo.svg" alt="Andreani" onerror="this.style.display='none'">
+  <svg class="hdr-ico" viewBox="3 0.5 58 58" role="img" aria-label="Nexo"
+       fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 26 32 16l20 10v20L32 56 12 46z"/>
+    <path d="M12 26 32 36l20-10M32 36v20"/>
+    <g fill="#fff" stroke="none">
+      <rect x="22.75" y="3" width="3.5" height="9" rx="1.2"/>
+      <rect x="28.75" y="3" width="2"   height="9" rx="1"/>
+      <rect x="33.25" y="3" width="2"   height="9" rx="1"/>
+      <rect x="37.75" y="3" width="3.5" height="9" rx="1.2"/>
+    </g>
+  </svg>
   <div class="header-txt">
     <div class="header-title" id="hdrTitle">Extractor de Código Agrupadora</div>
     <div class="header-sub">Operación · CyPe · Planificación</div>
@@ -580,7 +589,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v55</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v56</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">

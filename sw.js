@@ -1,11 +1,10 @@
-const CACHE = 'agrupadora-v55';
+const CACHE = 'agrupadora-v56';
 
 // Propios: si alguno falla, el install falla (son imprescindibles).
 const ASSETS_LOCALES = [
   '/Extraccion-agrupadora/',
   '/Extraccion-agrupadora/index.html',
   '/Extraccion-agrupadora/manifest.json',
-  '/Extraccion-agrupadora/logo.svg',
   '/Extraccion-agrupadora/icon-192.png',
   '/Extraccion-agrupadora/icon-512.png',
   '/Extraccion-agrupadora/icon-glifo-512.png',
