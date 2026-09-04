@@ -173,7 +173,8 @@
   .cam-status.ok   { background: rgba(46,125,50,0.8); border-color: rgba(255,255,255,0.22); }
   .cam-status.warn { background: rgba(160,106,0,0.85); border-color: rgba(255,255,255,0.22); }
   .cam-status.err  { background: rgba(215,25,32,0.85); border-color: rgba(255,255,255,0.22); }
-  .cam-status:not(.ok):not(.warn):not(.err)::after { content: "..."; display: inline-block; width: 1.1em; overflow: hidden; vertical-align: bottom; transform: scaleX(0); transform-origin: left; animation: dotsAnim 1.3s steps(4) infinite; }
+  .cam-status.dup  { background: rgba(63,81,181,0.88); border-color: rgba(255,255,255,0.28); font-weight: 700; }
+  .cam-status:not(.ok):not(.warn):not(.err):not(.dup)::after { content: "..."; display: inline-block; width: 1.1em; overflow: hidden; vertical-align: bottom; transform: scaleX(0); transform-origin: left; animation: dotsAnim 1.3s steps(4) infinite; }
 
   .cam-count { position: absolute; top: 14px; right: 14px; background: rgba(20,20,20,0.55); backdrop-filter: blur(14px) saturate(160%); border: 1px solid rgba(255,255,255,0.16); color: #fff; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 20px; z-index: 6; display: none; }
   .cam-count.visible { display: block; }
@@ -471,7 +472,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v44</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v45</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -677,6 +678,46 @@ function animarTick(idOverlay, verificado) {
   badge.style.animation = '';
   path.style.animation = '';
   setTimeout(() => { el.style.display = 'none'; }, 780);
+}
+
+/* Aviso de código repetido ─────────────────────────────────────────────────
+   Antes el repetido se descartaba en silencio: apuntar dos veces a la misma
+   caja no daba ninguna señal y no había forma de saber si se contó una o dos
+   veces.
+
+   Dos pulsos LARGOS, distintos de los dos cortos que ya significan "producto
+   sin configurar" en series, para que se distingan sin mirar la pantalla. */
+const PULSO_REPETIDO = [70, 90, 70];
+let ultimoRepetido = { dato: null, cuando: 0 };
+const timersRepetido = {};
+
+function avisarRepetido(pref, dato, texto) {
+  /* El bucle corre 5 veces por segundo: sin este freno vibraría sin parar
+     mientras la cámara siga apuntando al mismo código. */
+  const ahora = Date.now();
+  if (ultimoRepetido.dato === dato && ahora - ultimoRepetido.cuando < 2500) return;
+  ultimoRepetido = { dato, cuando: ahora };
+
+  vibrar(PULSO_REPETIDO);
+
+  const status = document.getElementById('camStatus' + pref);
+  if (!status) return;
+  status.className = 'cam-status dup';
+  status.textContent = texto;
+  clearTimeout(timersRepetido[pref]);
+  timersRepetido[pref] = setTimeout(() => {
+    const abierta = pref === 'Agr' ? camAgrAbierta : camSerAbierta;
+    if (abierta) { status.className = 'cam-status'; status.textContent = 'Apuntá al código'; }
+  }, 1900);
+}
+
+/* La comparación va contra lo YA CAPTURADO, no solo contra la sesión de cámara
+   actual: cerrar y volver a abrir la cámara no debe hacer que la misma caja
+   entre dos veces. */
+function yaEstaEnAgrupadora(dato) {
+  const ta = document.getElementById('inputAgr');
+  if (!ta || !ta.value) return false;
+  return ta.value.split('\n').some(l => l.trim() === dato);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1128,7 +1169,9 @@ function scanAgr() {
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const dato = leerQRAgr(canvas, ctx, img);
 
-    if (dato && !codigosAgr.has(dato)) {
+    if (dato && (codigosAgr.has(dato) || yaEstaEnAgrupadora(dato))) {
+      avisarRepetido('Agr', dato, 'Esta agrupadora ya se leyó');
+    } else if (dato) {
       codigosAgr.add(dato);
       animarTick('tickAgr');
       status.className = 'cam-status ok';
@@ -1387,17 +1430,28 @@ function scanSer() {
 }
 
 function onDecodeSer(raw) {
-  if (!raw || codigosSer.has(raw)) return;
-  codigosSer.add(raw);
+  if (!raw) return;
   const status = document.getElementById('camStatusSer');
 
+  /* El wizard va primero: configurar un producto tiene que funcionar aunque esa
+     serie ya esté en la lista. */
   if (wizardActivo) {
+    if (codigosSer.has(raw)) return;
+    codigosSer.add(raw);
     vibrar(35);
     wizardActivo = false;
     cerrarCamSer();
     manejarWizardCaptura(raw);
     return;
   }
+
+  /* Repetido: se compara contra la sesión de cámara Y contra las series ya
+     cargadas, así cerrar y reabrir la cámara no permite contar dos veces. */
+  if (codigosSer.has(raw) || series.some(i => i.raw === raw)) {
+    avisarRepetido('Ser', raw, 'Esta serie ya se leyó');
+    return;
+  }
+  codigosSer.add(raw);
 
   const res = extraerSerieParaRaw(raw);
 
