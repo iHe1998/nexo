@@ -185,7 +185,35 @@
   .dock-btn:active { transform: scale(0.92); }
   .dock-btn.on { background: rgba(215,25,32,0.8); border-color: rgba(255,255,255,0.3); }
   .dock-zoom { font-size: 12px; font-weight: 700; font-family: inherit; letter-spacing: -0.02em; }
-  .dock-ocr { font-size: 15px; }
+  .dock-ocr svg { width: 22px; height: 22px; }
+
+  /* Globo del robot: blanco para leerse sobre cualquier video, con el acento
+     rojo al costado. Anclado al botón por .dock-wrap, así queda bien apuntado
+     aunque la linterna o el zoom estén ocultos y la barra cambie de ancho. */
+  .dock-wrap { position: relative; flex-shrink: 0; display: flex; }
+  .cam-globo {
+    position: absolute; bottom: 53px; left: 50%; z-index: 9;
+    display: none; white-space: nowrap;
+    background: #fff; color: #1e1e1e;
+    border-left: 3px solid var(--rojo);
+    border-radius: 6px 13px 13px 6px;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.45);
+    padding: 9px 12px;
+    transform-origin: 38% 115%;
+  }
+  .cam-globo.visible { display: block; animation: globoEntra .34s cubic-bezier(.2,.9,.25,1); }
+  @keyframes globoEntra {
+    from { opacity: 0; transform: translateX(-42%) translateY(10px) scale(.86); }
+    to   { opacity: 1; transform: translateX(-42%) translateY(0) scale(1); }
+  }
+  .cam-globo { transform: translateX(-42%); }
+  .cam-globo .q { font-size: 12px; font-weight: 700; color: var(--rojo); line-height: 1.25; }
+  .cam-globo .s { font-size: 10.5px; opacity: .6; line-height: 1.3; margin-top: 2px; }
+  .cam-globo::after {
+    content: ""; position: absolute; bottom: -5px; left: 38%;
+    width: 10px; height: 10px; background: #fff; transform: rotate(45deg);
+  }
+  @media (prefers-reduced-motion: reduce) { .cam-globo.visible { animation: none; } }
   .ocr-cand { display: block; width: 100%; text-align: left; background: var(--gris-bg); border: 1.5px solid var(--gris-bd); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; font-family: 'Courier New', monospace; font-size: 16px; font-weight: 700; color: #333; letter-spacing: 0.02em; cursor: pointer; transition: border-color .15s, background .15s; }
   .ocr-cand:hover { border-color: var(--rojo); background: var(--rojo-claro); }
   .ocr-cand small { display: block; font-family: inherit; font-size: 10px; font-weight: 600; color: var(--gris-txt); letter-spacing: 0.06em; text-transform: uppercase; margin-top: 3px; }
@@ -476,7 +504,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v48</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v49</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -493,7 +521,15 @@
       <div class="cam-dock">
         <button class="dock-btn" id="btnLintAgr" onclick="toggleLintAgr()" title="Linterna">🔦</button>
         <button class="dock-btn dock-zoom" id="btnZoomAgr" onclick="cicloZoom('Agr')" title="Zoom" style="display:none">1×</button>
-        <button class="dock-btn dock-ocr" onclick="leerNumeroImpreso()" title="Leer el número impreso">🔢</button>
+        <span class="dock-wrap">
+          <div class="cam-globo" id="globoOCR">
+            <div class="q">¿No entra el QR?</div>
+            <div class="s">Tocame y leo el número impreso</div>
+          </div>
+          <button class="dock-btn dock-ocr" onclick="leerNumeroImpreso()" title="Leer el número impreso" aria-label="Leer el número impreso">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.4v2.2"/><rect x="4.2" y="4.6" width="15.6" height="15" rx="3.2"/><path d="M2.2 10.4v3.4M21.8 10.4v3.4"/><rect x="7" y="9.2" width="4.1" height="3.6" rx="1.1"/><rect x="12.9" y="9.2" width="4.1" height="3.6" rx="1.1"/><path d="M11.1 11h1.8"/><path d="M9.4 16.4h5.2"/></svg>
+          </button>
+        </span>
         <div class="dock-hint">Alineá el código dentro del marco</div>
         <button class="dock-btn dock-close" onclick="cerrarCamAgr()" title="Cerrar cámara">✕</button>
       </div>
@@ -716,6 +752,7 @@ async function leerNumeroImpreso() {
 
   status.className = 'cam-status';
   status.textContent = 'Leyendo el número impreso';
+  mostrarGloboOCR(false);
   try {
     const numeros = await numerosEnCuadro(copia);
     cerrarCamAgr();
@@ -1331,6 +1368,22 @@ function leerQRAgr(canvas, ctx, img) {
    en la imagen. */
 let diagAgr = { cuadros: 0, saltados: 0, desde: 0 };
 
+
+/* Globo del robot ─────────────────────────────────────────────────────────
+   Aparece recién cuando el QR lleva varios segundos sin entrar. Antes sería
+   puro ruido: la enorme mayoría de las etiquetas leen en menos de un segundo
+   y el cartel taparía el video sin motivo.
+
+   Se va al leer, al tocar el botón y al cerrar la cámara. */
+const MS_GLOBO_OCR = 7000;
+let inicioScanAgr = 0, globoMostrado = false;
+
+function mostrarGloboOCR(ver) {
+  const g = document.getElementById('globoOCR');
+  if (!g) return;
+  g.classList.toggle('visible', !!ver);
+  globoMostrado = !!ver;
+}
 function scanAgr() {
   const video = document.getElementById('videoAgr');
   const canvas = document.getElementById('canvasAgr');
@@ -1340,6 +1393,8 @@ function scanAgr() {
   const infoBase = info.textContent;
 
   diagAgr = { cuadros: 0, saltados: 0, desde: Date.now() };
+  inicioScanAgr = Date.now();
+  mostrarGloboOCR(false);
 
   scanIntervalAgr = setInterval(() => {
     const seg = (Date.now() - diagAgr.desde) / 1000;
@@ -1357,9 +1412,15 @@ function scanAgr() {
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const dato = leerQRAgr(canvas, ctx, img);
 
+    /* El robot ofrece ayuda recién cuando el QR lleva un rato sin entrar. */
+    if (!dato && !globoMostrado && Date.now() - inicioScanAgr > MS_GLOBO_OCR) {
+      mostrarGloboOCR(true);
+    }
+
     if (dato && (codigosAgr.has(dato) || yaEstaEnAgrupadora(dato))) {
       avisarRepetido('Agr', dato, 'Esta agrupadora ya se leyó');
     } else if (dato) {
+      mostrarGloboOCR(false);
       codigosAgr.add(dato);
       animarTick('tickAgr');
       status.className = 'cam-status ok';
@@ -1390,6 +1451,7 @@ async function toggleLintAgr() {
 }
 
 function cerrarCamAgr() {
+  mostrarGloboOCR(false);
   clearInterval(scanIntervalAgr);
   scanIntervalAgr = null;
   camAgrAbierta = false;
