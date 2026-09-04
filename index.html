@@ -185,6 +185,10 @@
   .dock-btn:active { transform: scale(0.92); }
   .dock-btn.on { background: rgba(215,25,32,0.8); border-color: rgba(255,255,255,0.3); }
   .dock-zoom { font-size: 12px; font-weight: 700; font-family: inherit; letter-spacing: -0.02em; }
+  .dock-ocr { font-size: 15px; }
+  .ocr-cand { display: block; width: 100%; text-align: left; background: var(--gris-bg); border: 1.5px solid var(--gris-bd); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; font-family: 'Courier New', monospace; font-size: 16px; font-weight: 700; color: #333; letter-spacing: 0.02em; cursor: pointer; transition: border-color .15s, background .15s; }
+  .ocr-cand:hover { border-color: var(--rojo); background: var(--rojo-claro); }
+  .ocr-cand small { display: block; font-family: inherit; font-size: 10px; font-weight: 600; color: var(--gris-txt); letter-spacing: 0.06em; text-transform: uppercase; margin-top: 3px; }
   .dock-hint { flex: 1; text-align: center; color: rgba(255,255,255,0.82); font-size: 11.5px; padding: 0 4px; }
 
   .cam-info { position: absolute; top: 14px; left: 14px; background: rgba(20,20,20,0.55); backdrop-filter: blur(14px) saturate(160%); border: 1px solid rgba(255,255,255,0.16); color: rgba(255,255,255,0.9); font-size: 10.5px; font-weight: 600; letter-spacing: .02em; padding: 6px 11px; border-radius: 20px; z-index: 6; }
@@ -472,7 +476,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v47</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v48</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -489,6 +493,7 @@
       <div class="cam-dock">
         <button class="dock-btn" id="btnLintAgr" onclick="toggleLintAgr()" title="Linterna">🔦</button>
         <button class="dock-btn dock-zoom" id="btnZoomAgr" onclick="cicloZoom('Agr')" title="Zoom" style="display:none">1×</button>
+        <button class="dock-btn dock-ocr" onclick="leerNumeroImpreso()" title="Leer el número impreso">🔢</button>
         <div class="dock-hint">Alineá el código dentro del marco</div>
         <button class="dock-btn dock-close" onclick="cerrarCamAgr()" title="Cerrar cámara">✕</button>
       </div>
@@ -581,6 +586,18 @@
   </div>
 </div>
 
+
+<!-- ══════════ HOJA: NÚMERO LEÍDO POR OCR ══════════ -->
+<div class="modal-overlay" id="ocrOverlay">
+  <div class="modal">
+    <div class="modal-title">🔢 Número de la etiqueta</div>
+    <div class="field-label">Tocá el que coincide con lo impreso</div>
+    <div id="ocrCandidatos"></div>
+    <div class="field-label" style="margin-top:14px">O escribilo a mano</div>
+    <input type="text" class="wizard-input" id="ocrManual" inputmode="numeric" autocomplete="off" placeholder="Ej: 20267141206608412">
+    <button class="btn" onclick="confirmarOCRManual()">Agregar</button>
+  </div>
+</div>
 <div id="toast" class="toast"></div>
 
 <div class="update-bar" id="updateBar">
@@ -625,6 +642,123 @@ function irA(vista) {
 }
 
 /* El botón central de la barra escanea con la herramienta que esté abierta. */
+
+/* ══════════════════════════════════════════════════════════
+   OCR DEL NÚMERO IMPRESO  ·  plan B para etiquetas ilegibles
+   ══════════════════════════════════════════════════════════
+
+   Cuando el QR está tan mal impreso que no lo lee ni el escáner nativo del
+   celular, el número sigue estando impreso en texto en la misma etiqueta.
+   Leerlo con OCR es un problema mucho más fácil que reconstruir un QR.
+
+   Tesseract se carga SOLO al usarlo: son ~2MB entre el script y el modelo de
+   idioma, y no tiene sentido que los baje todo el mundo para un caso de
+   excepción.
+
+   Medido: el script tarda ~340ms, el modelo ~620ms la primera vez, y cada
+   lectura entre 50 y 330ms. Con la lista blanca de dígitos y el modo de texto
+   disperso acierta el número completo en etiquetas nítidas, grises y con ruido.
+
+   NUNCA se carga solo: el OCR propone y la persona confirma contra la
+   etiqueta. Es a propósito. Una agrupadora de 16 dígitos empata en largo con
+   el número que sale de la línea de fecha (0771472026000000), así que elegir
+   automáticamente "el más largo" metería datos equivocados. */
+
+const OCR_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/7.0.0/tesseract.min.js';
+let ocrWorker = null, ocrCargando = null;
+
+function cargarOCR() {
+  if (ocrWorker) return Promise.resolve(ocrWorker);
+  if (ocrCargando) return ocrCargando;
+
+  ocrCargando = (async () => {
+    if (typeof Tesseract === 'undefined') {
+      await new Promise((ok, err) => {
+        const s = document.createElement('script');
+        s.src = OCR_CDN;
+        s.onload = ok;
+        s.onerror = () => err(new Error('No se pudo bajar el lector de texto'));
+        document.head.appendChild(s);
+      });
+    }
+    const w = await Tesseract.createWorker('eng');
+    await w.setParameters({
+      tessedit_char_whitelist: '0123456789',
+      tessedit_pageseg_mode: '11'          // texto disperso: la etiqueta tiene varias líneas sueltas
+    });
+    ocrWorker = w;
+    return w;
+  })();
+
+  ocrCargando.catch(() => { ocrCargando = null; });
+  return ocrCargando;
+}
+
+/* Devuelve los números de largo plausible que encontró, del más largo al más
+   corto y sin repetir. */
+async function numerosEnCuadro(canvas) {
+  const w = await cargarOCR();
+  const { data } = await w.recognize(canvas);
+  const hallados = data.text.match(/\d{14,25}/g) || [];
+  return [...new Set(hallados)].sort((a, b) => b.length - a.length);
+}
+
+async function leerNumeroImpreso() {
+  const status = document.getElementById('camStatusAgr');
+  const canvas = document.getElementById('canvasAgr');
+  if (!canvas || !canvas.width) return;
+
+  /* Copia del cuadro actual: el bucle de escaneo sigue corriendo y pisaría el
+     canvas mientras el OCR trabaja. */
+  const copia = document.createElement('canvas');
+  copia.width = canvas.width; copia.height = canvas.height;
+  copia.getContext('2d').drawImage(canvas, 0, 0);
+
+  status.className = 'cam-status';
+  status.textContent = 'Leyendo el número impreso';
+  try {
+    const numeros = await numerosEnCuadro(copia);
+    cerrarCamAgr();
+    abrirHojaOCR(numeros);
+  } catch (e) {
+    status.className = 'cam-status err';
+    status.textContent = 'No se pudo iniciar el lector de texto';
+    setTimeout(() => {
+      if (camAgrAbierta) { status.className = 'cam-status'; status.textContent = 'Apuntá al código'; }
+    }, 2200);
+  }
+}
+
+function abrirHojaOCR(numeros) {
+  const cont = document.getElementById('ocrCandidatos');
+  cont.innerHTML = (numeros && numeros.length)
+    ? numeros.map(n => `<button class="ocr-cand" onclick="usarNumeroOCR('${n}')">${n}<small>${n.length} dígitos</small></button>`).join('')
+    : '<div class="empty-state" style="padding:16px">No se reconoció ningún número.<br>Escribilo a mano abajo.</div>';
+  document.getElementById('ocrManual').value = '';
+  document.getElementById('ocrOverlay').classList.add('active');
+}
+
+function cerrarHojaOCR() {
+  document.getElementById('ocrOverlay').classList.remove('active');
+}
+
+function usarNumeroOCR(numero) {
+  const n = String(numero).replace(/\D/g, '');
+  if (n.length < 8) { mostrarToast('El número parece incompleto.'); return; }
+  /* Se envuelve en <AA> para que siga el mismo camino que un código escaneado:
+     una sola forma de entrar los datos, no dos. */
+  const ta = document.getElementById('inputAgr');
+  const linea = '<AA>' + n + '<AA>';
+  ta.value = ta.value ? ta.value + '\n' + linea : linea;
+  extraerAgr(ta.value.trim());
+  cerrarHojaOCR();
+  vibrar(35);
+  mostrarToast('Número agregado a mano');
+}
+
+function confirmarOCRManual() {
+  usarNumeroOCR(document.getElementById('ocrManual').value);
+}
 function escanearActual() {
   if (document.getElementById('viewSeries').classList.contains('active')) toggleCamSer();
   else abrirCamAgr();
@@ -786,15 +920,24 @@ function extraerAgr(textoExtra) {
     return;
   }
 
-  const matches = [...raw.matchAll(/<AA>([^<]+)<AA>/gi)];
-  if (matches.length === 0) {
+  /* Formato normal del QR. */
+  let valores = [...raw.matchAll(/<AA>([^<]+)<AA>/gi)].map(m => m[1].trim());
+
+  /* Si no hay ninguno, se acepta el número suelto tal como está impreso en la
+     etiqueta. Sirve para cargar a mano una agrupadora cuyo QR está ilegible.
+     El piso de 14 dígitos deja afuera el GTIN (13) y el número de tarea. */
+  if (valores.length === 0) {
+    valores = raw.match(/\b\d{14,25}\b/g) || [];
+  }
+
+  if (valores.length === 0) {
     box.className = 'result-box error';
     val.className = 'result-value error-msg';
-    val.innerHTML = 'No se encontró ningún valor &lt;AA&gt;.';
+    val.innerHTML = 'No se encontró ningún valor &lt;AA&gt; ni un número de agrupadora.';
     return;
   }
 
-  valoresAgr = matches.map(m => m[1].trim());
+  valoresAgr = valores;
   renderAgr();
 }
 
@@ -2136,7 +2279,8 @@ function aplicarActualizacion() {
    cerrarSettings() además resetea el wizard. */
 const CIERRE_HOJA = {
   settingsOverlay:  () => cerrarSettings(),
-  historialOverlay: () => cerrarHistorial()
+  historialOverlay: () => cerrarHistorial(),
+  ocrOverlay:       () => cerrarHojaOCR()
 };
 
 function cerrarHoja(ov) {
