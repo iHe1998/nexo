@@ -1,15 +1,15 @@
-const CACHE = 'agrupadora-v59';
+const CACHE = 'agrupadora-v60';
 
 // Propios: si alguno falla, el install falla (son imprescindibles).
 const ASSETS_LOCALES = [
-  '/Extraccion-agrupadora/',
-  '/Extraccion-agrupadora/index.html',
-  '/Extraccion-agrupadora/manifest.json',
-  '/Extraccion-agrupadora/icon-192.png',
-  '/Extraccion-agrupadora/icon-512.png',
-  '/Extraccion-agrupadora/icon-glifo-512.png',
-  '/Extraccion-agrupadora/apple-touch-icon.png',
-  '/Extraccion-agrupadora/favicon.png'
+  '/nexo/',
+  '/nexo/index.html',
+  '/nexo/manifest.json',
+  '/nexo/icon-192.png',
+  '/nexo/icon-512.png',
+  '/nexo/icon-glifo-512.png',
+  '/nexo/apple-touch-icon.png',
+  '/nexo/favicon.png'
 ];
 
 // Externos: se cachean "best effort". En el WiFi de Andreani el proxy puede
@@ -49,7 +49,7 @@ self.addEventListener('activate', e => {
    El corte de 2.5s mantiene la app rápida con señal mala y offline: si la red
    no contesta a tiempo, se sirve lo cacheado igual. */
 const TIMEOUT_RED = 2500;
-const INDEX = '/Extraccion-agrupadora/index.html';
+const INDEX = '/nexo/index.html';
 
 self.addEventListener('fetch', e => {
   const req = e.request;
@@ -60,15 +60,23 @@ self.addEventListener('fetch', e => {
         const corte = new Promise((_, rechazar) =>
           setTimeout(() => rechazar(new Error('red lenta')), TIMEOUT_RED));
         const res = await Promise.race([fetch(req.url, { cache: 'no-store' }), corte]);
-        if (res && res.ok) {
-          const copia = res.clone();
-          caches.open(CACHE).then(c => c.put(INDEX, copia)).catch(() => {});
-        }
+
+        /* Un 404 o un 500 NO hacen fallar a `fetch`: resuelven normalmente.
+           Sin este chequeo la app le mostraba al usuario la página de error del
+           servidor en vez de lo que ya tenía cacheado, que es peor en todos los
+           casos: la app instalada no tiene barra de direcciones, así que desde
+           ahí no hay forma de salir.
+
+           Tirando el error acá se cae al catch, que sirve la caché. */
+        if (!res || !res.ok) throw new Error('el servidor contestó ' + (res && res.status));
+
+        const copia = res.clone();
+        caches.open(CACHE).then(c => c.put(INDEX, copia)).catch(() => {});
         return res;
       } catch (err) {
         return (await caches.match(req))
             || (await caches.match(INDEX))
-            || (await caches.match('/Extraccion-agrupadora/'))
+            || (await caches.match('/nexo/'))
             || Response.error();
       }
     })());

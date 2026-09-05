@@ -643,7 +643,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v59</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v60</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -2444,7 +2444,7 @@ async function chequearVersion() {
 }
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/Extraccion-agrupadora/sw.js').then(reg => {
+  navigator.serviceWorker.register('/nexo/sw.js').then(reg => {
     /* Se le sigue pidiendo que se actualice para que el caché de offline se
        ponga al día, pero ya no se depende de eso para avisar. */
     reg.update();
