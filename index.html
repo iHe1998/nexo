@@ -686,7 +686,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v61</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v62</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -703,6 +703,7 @@
       <div class="cam-dock">
         <button class="dock-btn" id="btnLintAgr" onclick="toggleLintAgr()" title="Linterna">🔦</button>
         <button class="dock-btn dock-zoom" id="btnZoomAgr" onclick="cicloZoom('Agr')" title="Zoom" style="display:none">1×</button>
+        <button class="dock-btn" id="btnLenteAgr" onclick="cicloLente('Agr')" title="Cambiar de cámara" aria-label="Cambiar de cámara" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.2h3.1l1.5-2.4h6.8l1.5 2.4H20a1.5 1.5 0 0 1 1.5 1.5v8.3A1.5 1.5 0 0 1 20 19.5H4a1.5 1.5 0 0 1-1.5-1.5V9.7A1.5 1.5 0 0 1 4 8.2z"/><path d="M9.6 13.6a2.4 2.4 0 0 1 4-1.8"/><path d="M14.4 13.6a2.4 2.4 0 0 1-4 1.8"/><path d="M13.6 10.2v1.6h-1.6M10.4 17v-1.6h1.6"/></svg></button>
         <span class="dock-wrap">
           <div class="cam-globo" id="globoOCR">
             <div class="q">¿No entra el QR?</div>
@@ -735,6 +736,7 @@
       <div class="cam-dock">
         <button class="dock-btn" id="btnLintSer" onclick="toggleLintSer()" title="Linterna" style="display:none">🔦</button>
         <button class="dock-btn dock-zoom" id="btnZoomSer" onclick="cicloZoom('Ser')" title="Zoom" style="display:none">1×</button>
+        <button class="dock-btn" id="btnLenteSer" onclick="cicloLente('Ser')" title="Cambiar de cámara" aria-label="Cambiar de cámara" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.2h3.1l1.5-2.4h6.8l1.5 2.4H20a1.5 1.5 0 0 1 1.5 1.5v8.3A1.5 1.5 0 0 1 20 19.5H4a1.5 1.5 0 0 1-1.5-1.5V9.7A1.5 1.5 0 0 1 4 8.2z"/><path d="M9.6 13.6a2.4 2.4 0 0 1 4-1.8"/><path d="M14.4 13.6a2.4 2.4 0 0 1-4 1.8"/><path d="M13.6 10.2v1.6h-1.6M10.4 17v-1.6h1.6"/></svg></button>
         <div class="dock-hint">Alineá el código dentro del marco</div>
         <button class="dock-btn dock-close" onclick="cerrarCamSer()" title="Cerrar cámara">✕</button>
       </div>
@@ -1212,6 +1214,131 @@ function actualizarContadorAgr() {
 
 const camCtrl = { Agr: null, Ser: null };
 
+/* ══════════════════════════════════════════════════════════
+   ELECCIÓN DE LENTE
+   ══════════════════════════════════════════════════════════ */
+
+/* Los teléfonos con varias lentes traseras son el problema. Pidiendo
+   `facingMode: environment` el sistema elige por su cuenta, y en iPhone suele
+   entregar una cámara VIRTUAL o la GRAN ANGULAR. La gran angular no enfoca de
+   cerca: escaneando a centímetros la imagen sale borrosa y no engancha nunca.
+
+   No hay constraint que lo arregle — `focusMode` ni siquiera existe en iOS.
+   La única salida es pedir OTRA cámara por deviceId.
+
+   Los nombres de las cámaras solo aparecen DESPUÉS de dar permiso, así que
+   esto corre con el stream ya abierto: se abre como siempre, y recién ahí se
+   evalúa si conviene cambiar. Así el camino que ya funcionaba sigue siendo el
+   punto de partida. */
+
+const camaras   = { Agr: [], Ser: [] };
+const camaraIdx = { Agr: 0, Ser: 0 };
+
+const LENTE_MALA    = /ultra|gran ?angular|angle|tele|zoom|depth|infrared|monochrome/i;
+const LENTE_TRASERA = /back|rear|trasera|traseira|environment|arri[eè]re|r[üu]ck/i;
+
+function puntajeLente(label) {
+  const l = (label || '').trim();
+  let p = 0;
+  if (LENTE_TRASERA.test(l)) p += 10;
+  if (LENTE_MALA.test(l))    p -= 8;
+  /* "Back Camera" a secas es la principal del iPhone. Las "Dual"/"Triple" son
+     cámaras virtuales que el sistema conmuta por su cuenta, y en la web esa
+     conmutación no pasa: se queda en la lente que le tocó. */
+  if (/^back camera$|^c[áa]mara trasera$/i.test(l)) p += 5;
+  return p;
+}
+
+function traerStream(pref) { return pref === 'Agr' ? streamAgr : streamSer; }
+function ponerStream(pref, s) {
+  if (pref === 'Agr') streamAgr = s; else streamSer = s;
+  document.getElementById('video' + pref).srcObject = s;
+}
+
+function nombreLente(pref) {
+  const d = (camaras[pref] || [])[camaraIdx[pref]];
+  if (!d || !d.label) return '';
+  const corto = d.label
+    .replace(/\(.*?\)/g, '')
+    .replace(/c[áa]mara|camera|back|trasera|rear|facing/gi, '')
+    .replace(/[,\s]+/g, ' ')
+    .trim();
+  return corto || 'principal';
+}
+
+/* Se llama con la cámara ya abierta. */
+async function prepararLentes(pref) {
+  let devs = [];
+  try { devs = await navigator.mediaDevices.enumerateDevices(); } catch(e) { return; }
+
+  /* Sin nombres no se puede distinguir la trasera de la frontal, y ofrecer un
+     botón que cicle a la cámara selfie sería peor que no ofrecer nada. Pasa en
+     Firefox y si por algo el permiso no quedó concedido. */
+  const camaras_ = devs.filter(d => d.kind === 'videoinput');
+  if (!camaras_.some(d => d.label)) { camaras[pref] = []; pintarInfoCam(pref); return; }
+
+  const traseras = camaras_.filter(d => !/front|frontal|user|delantera|selfie/i.test(d.label || ''));
+  camaras[pref] = traseras;
+
+  const track = (traerStream(pref) || {}).getVideoTracks ? traerStream(pref).getVideoTracks()[0] : null;
+  const idActual = track && track.getSettings ? track.getSettings().deviceId : null;
+  const i = traseras.findIndex(d => d.deviceId === idActual);
+  camaraIdx[pref] = i >= 0 ? i : 0;
+
+  const btn = document.getElementById('btnLente' + pref);
+  if (btn) btn.style.display = traseras.length > 1 ? 'flex' : 'none';
+
+  /* Si el sistema agarró una lente peor que otra disponible, se cambia sola.
+     Una sola vez y solo si hay una mejor de verdad; si empatan no se toca
+     nada, porque lo que ya venía andando manda. */
+  if (traseras.length > 1) {
+    let mejor = camaraIdx[pref];
+    traseras.forEach((d, k) => {
+      if (puntajeLente(d.label) > puntajeLente(traseras[mejor].label)) mejor = k;
+    });
+    if (mejor !== camaraIdx[pref]) { await usarLente(pref, mejor); return; }
+  }
+  pintarInfoCam(pref);
+}
+
+async function usarLente(pref, i) {
+  const lista = camaras[pref] || [];
+  if (!lista[i]) return;
+
+  /* Mismo perfil que abrirStreamCam: el piso de frameRate de la agrupadora
+     viaja con la lente nueva. No sacarlo — ver el comentario de allá. */
+  const base = pref === 'Ser'
+    ? { width: { ideal: 4096 }, height: { ideal: 2160 } }
+    : { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, min: 30 } };
+  const id = { deviceId: { exact: lista[i].deviceId } };
+
+  let nuevo = null;
+  try {
+    nuevo = await navigator.mediaDevices.getUserMedia({ video: Object.assign({}, id, base) });
+  } catch(e) {
+    /* Esa lente puede no dar 30fps a 1080p. Se reintenta sin el piso antes de
+       rendirse: acá es preferible una lente que enfoque a una que no abre. */
+    try { nuevo = await navigator.mediaDevices.getUserMedia({ video: id }); } catch(e2) {}
+  }
+  if (!nuevo) { mostrarToast('Esa cámara no se pudo abrir'); return; }
+
+  const viejo = traerStream(pref);
+  if (viejo) viejo.getTracks().forEach(t => t.stop());
+  camaraIdx[pref] = i;
+  ponerStream(pref, nuevo);
+  await iniciarCtrlCam(pref, nuevo);
+  const btn = document.getElementById('btnLente' + pref);
+  if (btn) btn.style.display = lista.length > 1 ? 'flex' : 'none';
+  pintarInfoCam(pref);
+}
+
+function cicloLente(pref) {
+  const lista = camaras[pref] || [];
+  if (lista.length < 2) return;
+  usarLente(pref, (camaraIdx[pref] + 1) % lista.length);
+}
+
+
 /* Dos perfiles distintos, fijos por herramienta.
 
    AGRUPADORA: QR impreso en papel, escaneado a distancia de brazo y sin
@@ -1295,7 +1422,8 @@ function pintarInfoCam(pref, settings) {
   const mp  = (s.width && s.height) ? (s.width * s.height / 1e6).toFixed(1) + ' MP' : '';
   const fps = s.frameRate ? Math.round(s.frameRate) + ' fps' : '';
   const res = (s.width && s.height) ? s.width + '×' + s.height : '';
-  document.getElementById('camInfo' + pref).textContent = [res, mp, fps].filter(Boolean).join(' · ') || '—';
+  const lente = nombreLente(pref);
+  document.getElementById('camInfo' + pref).textContent = [res, mp, fps, lente].filter(Boolean).join(' · ') || '—';
 }
 
 
@@ -1403,6 +1531,7 @@ async function abrirCamAgr() {
     streamAgr = await abrirStreamCam('Agr');
     document.getElementById('videoAgr').srcObject = streamAgr;
     await iniciarCtrlCam('Agr', streamAgr);
+    prepararLentes('Agr');
     camAgrAbierta = true;
     status.textContent = 'Apuntá al código';
     scanAgr();
@@ -1818,6 +1947,7 @@ async function abrirCamSer() {
     streamSer = await abrirStreamCam('Ser');
     document.getElementById('videoSer').srcObject = streamSer;
     await iniciarCtrlCam('Ser', streamSer);
+    prepararLentes('Ser');
     camSerAbierta = true; scanLoopSer = true;
     lintSerActiva = false;
     status.textContent = wizardActivo ? 'Escaneá el producto a configurar' : 'Apuntá al código';
