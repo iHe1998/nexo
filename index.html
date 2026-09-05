@@ -495,6 +495,49 @@
   .toast { position: fixed; bottom: calc(76px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%) translateY(20px); background: #222; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none; transition: all 0.25s; z-index: 3000; max-width: 90%; text-align: center; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+  /* ═══════════ CARTEL DE INSTALACIÓN · iPhone ═══════════ */
+  /* Android ofrece instalar solo. iPhone NO muestra nada, nunca: la app se
+     agrega a mano desde el menú Compartir de Safari, y encima el navegador
+     interno de WhatsApp —por donde llega casi todo el mundo— ni siquiera
+     tiene esa opción. Sin este cartel el de iPhone no tiene forma de darse
+     cuenta de por qué "no le aparece para descargar". */
+  .ios-tip {
+    position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom));
+    transform: translateX(-50%) translateY(calc(100% + 130px));
+    width: calc(100% - 24px); max-width: 420px;
+    background: #222; color: #fff;
+    border-radius: 14px; padding: 14px 16px 15px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.36);
+    z-index: 3900; transition: transform .38s cubic-bezier(.3,.12,.22,1);
+    font-size: 13px;
+  }
+  .ios-tip.show { transform: translateX(-50%) translateY(0); }
+  .ios-tip-cab {
+    display: flex; align-items: center; gap: 9px;
+    font-weight: 700; font-size: 13.5px; padding-right: 26px;
+  }
+  .ios-tip-cab svg { width: 19px; height: 19px; flex-shrink: 0; }
+  .ios-paso {
+    display: flex; gap: 9px; align-items: flex-start;
+    line-height: 1.45; margin-top: 9px; color: rgba(255,255,255,.8);
+  }
+  .ios-paso b { color: #fff; font-weight: 600; }
+  .ios-num {
+    flex-shrink: 0; width: 17px; height: 17px; border-radius: 50%;
+    background: var(--rojo); color: #fff; font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; margin-top: 1px;
+  }
+  /* El ícono de Compartir de iOS es LO que hay que encontrar en la pantalla,
+     así que va dibujado y no descrito con palabras. */
+  .ios-share { width: 13px; height: 15px; vertical-align: -3px; margin: 0 1px; }
+  .ios-tip-x {
+    position: absolute; top: 6px; right: 6px;
+    width: 32px; height: 32px; border: 0; background: none;
+    color: rgba(255,255,255,.55); font-size: 16px; line-height: 1;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  @media (prefers-reduced-motion: reduce) { .ios-tip { transition-duration: .01ms; } }
+
   /* Barra de actualización */
   .update-bar {
     position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom));
@@ -643,7 +686,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v60</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v61</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -782,6 +825,19 @@
   </span>
   <button class="update-btn" id="updateBtn" onclick="aplicarActualizacion()">Actualizar</button>
   <div class="update-prog"><i id="updateProgFill"></i></div>
+</div>
+
+<!-- Cartel de instalación para iPhone. Arranca oculto: lo muestra
+     mostrarTipIOS() solo en iOS y solo si la app no está ya instalada. -->
+<div class="ios-tip" id="iosTip">
+  <button class="ios-tip-x" onclick="cerrarTipIOS()" aria-label="Cerrar">&#10005;</button>
+  <div class="ios-tip-cab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5" y="2.5" width="14" height="19" rx="3"/><path d="M10.2 5.6h3.6"/>
+    </svg>
+    Ponela en tu pantalla de inicio
+  </div>
+  <div id="iosPasos"></div>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
@@ -2525,6 +2581,89 @@ function animarLogo() {
 }
 
 /* ══════════════════════════════════════════════════════════
+   CARTEL DE INSTALACIÓN · iPhone
+   ══════════════════════════════════════════════════════════ */
+
+/* Android ofrece instalar la app solo. iPhone NO muestra nada, nunca: se
+   agrega a mano desde el menú Compartir de Safari. Y el navegador interno de
+   WhatsApp —por donde llega casi todo el mundo, porque el link se comparte
+   por ahí— directamente NO TIENE esa opción.
+
+   O sea que el compañero con iPhone abre el link del grupo, no encuentra
+   ninguna forma de instalarla, y no tiene manera de saber por qué. Este
+   cartel es la única pista que va a tener. */
+
+const CLAVE_TIP_IOS = 'nexo.tipIOS';
+
+/* El ícono de Compartir de iOS es LO que hay que encontrar en la pantalla,
+   así que se dibuja en vez de describirlo con palabras. */
+const ICONO_COMPARTIR =
+  '<svg class="ios-share" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
+  ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M12 15.5V3"/><path d="M8.4 6.6 12 3l3.6 3.6"/>' +
+  '<path d="M7.5 10.5H6a1.5 1.5 0 0 0-1.5 1.5v7.5A1.5 1.5 0 0 0 6 21h12a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5h-1.5"/>' +
+  '</svg>';
+
+function esIOS() {
+  const ua = navigator.userAgent;
+  /* El iPad moderno se hace pasar por Mac; la única pista que queda es que
+     tenga pantalla táctil. */
+  return /iPad|iPhone|iPod/.test(ua)
+      || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
+function appInstalada() {
+  return navigator.standalone === true
+      || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+}
+
+/* Heurística: los navegadores embebidos (WhatsApp, Instagram) son WKWebView y
+   no traen el token "Safari/". Puede errarle, y por eso el cartel muestra los
+   DOS pasos siempre: lo único que cambia es cuál va primero. Así, si la
+   detección falla, el usuario igual encuentra lo que necesita. */
+function enNavegadorEmbebido() {
+  const ua = navigator.userAgent;
+  if (/FBAN|FBAV|Instagram|Line\/|MicroMessenger|Snapchat/i.test(ua)) return true;
+  return !/Safari\//.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
+}
+
+function paso(n, html) {
+  return '<div class="ios-paso"><span class="ios-num">' + n + '</span><span>' + html + '</span></div>';
+}
+
+function mostrarTipIOS() {
+  if (!esIOS() || appInstalada()) return;
+  try { if (localStorage.getItem(CLAVE_TIP_IOS)) return; } catch(e) {}
+
+  const tip = document.getElementById('iosTip');
+  const pasos = document.getElementById('iosPasos');
+  if (!tip || !pasos) return;
+
+  const compartir = 'el botón <b>Compartir</b> ' + ICONO_COMPARTIR;
+
+  pasos.innerHTML = enNavegadorEmbebido()
+    ? paso(1, 'Desde WhatsApp no se puede instalar. Tocá ' + compartir +
+              ' o los <b>···</b> de esta ventana y elegí <b>Abrir en Safari</b>.') +
+      paso(2, 'Ya en Safari, tocá ' + compartir + ' abajo, bajá en la lista y elegí <b>Agregar a inicio</b>.')
+    : paso(1, 'Tocá ' + compartir + ' en la barra de abajo.') +
+      paso(2, 'Bajá en la lista y elegí <b>Agregar a inicio</b>.') +
+      paso('!', 'Si lo abriste desde <b>WhatsApp</b>, primero tocá los <b>···</b> y <b>Abrir en Safari</b>: desde ahí no se puede.');
+
+  /* Si hay aviso de versión, ese manda: son dos carteles en el mismo lugar y
+     actualizar es más urgente que instalar. */
+  const barra = document.getElementById('updateBar');
+  if (barra && barra.classList.contains('show')) return;
+
+  tip.classList.add('show');
+}
+
+function cerrarTipIOS() {
+  const tip = document.getElementById('iosTip');
+  if (tip) tip.classList.remove('show');
+  try { localStorage.setItem(CLAVE_TIP_IOS, '1'); } catch(e) {}
+}
+
+/* ══════════════════════════════════════════════════════════
    ARRANQUE
    ══════════════════════════════════════════════════════════ */
 
@@ -2543,6 +2682,9 @@ function animarLogo() {
   initHojas();
   if (hash === 'series') irA('series');
   else irA('agrupadora');
+
+  /* Después del arranque, para no encimarse con la animación de entrada. */
+  setTimeout(mostrarTipIOS, 2200);
 })();
 
 
