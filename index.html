@@ -686,7 +686,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v69</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v70</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1274,16 +1274,22 @@ const CLAVE_RES = 'nexo.res.';
 const MAXIMO = -1;
 const RES_OPCIONES = [MAXIMO, 0, 1080, 1440, 2160];   // 0 = automática, según pantalla
 
-/* Sin elección previa arranca en MÁXIMO: es lo que pidió Joel explícitamente.
+/* Sin elección previa arranca en AUTO, y eso está probado en los dos teléfonos
+   del equipo, no elegido de arriba.
 
-   El riesgo queda escrito acá para que no se pierda: lo que un teléfono
-   declara como resolución máxima suele ser la de la cámara de FOTO, y el
-   pipeline de VIDEO no siempre la sostiene — en la v62 eso se vio como imagen
-   blanda en iPhone. Si vuelve a pasar, el botón de resolución baja a 1440p o
-   a "auto" y el problema se va. No hace falta tocar código. */
+   El modo MÁXIMO estuvo un rato como default a pedido explícito. Anduvo bien
+   en el POCO pero en el iPhone dejaba la imagen blanda: pedía 4K, y en ese
+   modo el iPhone enfoca y procesa peor. Con AUTO —que pide el escalón estándar
+   más chico que ya cubra la pantalla, o sea 1440p en ese teléfono— se ve
+   nítido. Confirmado por Joel en el aparato.
+
+   O sea que la mejor calidad de imagen NO es la mayor cantidad de píxeles.
+   Es la tercera vez que este proyecto choca con lo mismo.
+
+   MÁXIMO sigue disponible en el botón para el que lo quiera. */
 function resGuardada(pref) {
-  try { const v = localStorage.getItem(CLAVE_RES + pref); return v == null ? MAXIMO : (+v || 0); }
-  catch(e) { return MAXIMO; }
+  try { const v = localStorage.getItem(CLAVE_RES + pref); return v == null ? 0 : (+v || 0); }
+  catch(e) { return 0; }
 }
 function guardarRes(pref, v) { try { localStorage.setItem(CLAVE_RES + pref, String(v)); } catch(e) {} }
 
