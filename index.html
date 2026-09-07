@@ -686,7 +686,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v68</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v69</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1448,7 +1448,7 @@ async function usarLente(pref, i, aMano) {
      viaja con la lente nueva. No sacarlo — ver el comentario de allá. */
   const base = pref === 'Ser'
     ? ladosPedidos(pref)
-    : Object.assign({ frameRate: { ideal: 60, min: 30 } }, ladosPedidos(pref));
+    : Object.assign({ frameRate: { min: 30 } }, ladosPedidos(pref));
   const id = { deviceId: { exact: lista[i].deviceId } };
 
   let nuevo = null;
@@ -1565,14 +1565,14 @@ async function abrirStreamCam(pref) {
     const lados = { width: { ideal: Math.round(alto * 16 / 9) }, height: { ideal: alto } };
     intentos.push(maxDetalle
       ? Object.assign({ facingMode: 'environment' }, lados)
-      : Object.assign({ facingMode: { ideal: 'environment' }, frameRate: { ideal: 60, min: 30 } }, lados));
+      : Object.assign({ facingMode: { ideal: 'environment' }, frameRate: { min: 30 } }, lados));
   }
 
   /* Último recurso de la agrupadora: sin el piso de frameRate. Se llega acá
      solo si NINGUNA resolución lo cumplía, y ahí es preferible una cámara que
      abre a una que no. No generalizar esto a los intentos de arriba. */
   if (!maxDetalle) {
-    intentos.push({ facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } });
+    intentos.push({ facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } });
   }
   intentos.push({ facingMode: 'environment' });
 
@@ -1588,10 +1588,22 @@ async function afinarCam(track, maxDetalle) {
   const adv = [];
   if (caps.focusMode && caps.focusMode.includes('continuous')) adv.push({ focusMode: 'continuous' });
 
-  const fpsTop = caps.frameRate && caps.frameRate.max ? Math.min(60, caps.frameRate.max) : 60;
-  const c = maxDetalle ? {} : { frameRate: { ideal: fpsTop } };
-  try { await track.applyConstraints(Object.assign({}, c, { advanced: adv })); }
-  catch(e) { try { await track.applyConstraints({ advanced: adv }); } catch(e2) {} }
+  /* NO se pide 60 fps.
+
+     Se pedía, y era lo único que quedaba constante en todas las pruebas del
+     iPhone: cambiara la lente o la resolución, el cartel siempre decía 60 fps.
+     Con 8,3 MP y ×0,61 de ampliación —o sea con la imagen REDUCIDA, no
+     estirada— la vista previa seguía saliendo blanda. Eso ya no es un problema
+     de píxeles: es de foco y de procesado.
+
+     A 60 fps el iPhone entra en un modo de captura distinto, con la exposición
+     mucho más corta y menos margen para enfocar y limpiar la imagen. La v25
+     no pedía NINGÚN frameRate y en el mismo teléfono se veía perfecto.
+
+     Queda solo el `min: 30` de la petición, que es lo que de verdad protege
+     contra la imagen movida en el depósito. Pedir 60 encima de eso no aportaba
+     nada y empeoraba el iPhone. */
+  try { await track.applyConstraints({ advanced: adv }); } catch(e) {}
 
   /* ACÁ ESTABA EL "0,9 MP".
 
