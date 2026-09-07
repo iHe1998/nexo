@@ -686,7 +686,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v66</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v67</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1271,11 +1271,19 @@ function puntajeLente(label) {
    verdad. Pedir lo que se va a mostrar, ni más ni menos. */
 
 const CLAVE_RES = 'nexo.res.';
-const RES_OPCIONES = [0, 1080, 1440, 2160];   // 0 = automática, según pantalla
+const MAXIMO = -1;
+const RES_OPCIONES = [MAXIMO, 0, 1080, 1440, 2160];   // 0 = automática, según pantalla
 
+/* Sin elección previa arranca en MÁXIMO: es lo que pidió Joel explícitamente.
+
+   El riesgo queda escrito acá para que no se pierda: lo que un teléfono
+   declara como resolución máxima suele ser la de la cámara de FOTO, y el
+   pipeline de VIDEO no siempre la sostiene — en la v62 eso se vio como imagen
+   blanda en iPhone. Si vuelve a pasar, el botón de resolución baja a 1440p o
+   a "auto" y el problema se va. No hace falta tocar código. */
 function resGuardada(pref) {
-  try { const v = localStorage.getItem(CLAVE_RES + pref); return v == null ? 0 : +v || 0; }
-  catch(e) { return 0; }
+  try { const v = localStorage.getItem(CLAVE_RES + pref); return v == null ? MAXIMO : (+v || 0); }
+  catch(e) { return MAXIMO; }
 }
 function guardarRes(pref, v) { try { localStorage.setItem(CLAVE_RES + pref, String(v)); } catch(e) {} }
 
@@ -1294,13 +1302,63 @@ function altoSegunPantalla() {
 }
 
 function ladosPedidos(pref) {
-  const alto = resGuardada(pref) || altoSegunPantalla();
+  const modo = resGuardada(pref);
+  /* En máximo se pide alto de entrada; después subirAMaximo() afina con lo que
+     la cámara declare de verdad, que recién se puede leer con el stream ya
+     abierto. */
+  const alto = modo === MAXIMO ? 2160 : (modo || altoSegunPantalla());
   return { width: { ideal: Math.round(alto * 16 / 9) }, height: { ideal: alto } };
 }
 
 function etiquetaRes(pref) {
   const v = resGuardada(pref);
+  if (v === MAXIMO) return 'máx';
   return v ? (v >= 2160 ? '4K' : v + 'p') : 'auto';
+}
+
+/* Sube a la resolución más alta que la cámara declare. Corre con el stream ya
+   abierto porque getCapabilities() no dice nada hasta que hay track.
+
+   No lleva el piso de frameRate: pedir el máximo de píxeles y a la vez 30fps
+   duros es pedir dos cosas que se pelean, y acá gana lo que se pidió. */
+async function subirAMaximo(pref) {
+  if (resGuardada(pref) !== MAXIMO) return;
+  const ctrl = camCtrl[pref];
+  const track = ctrl && ctrl.track;
+  if (!track) return;
+
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  const s = track.getSettings ? track.getSettings() : {};
+  /* iOS muchas veces no declara capacidades: ahí se pide un número grande y
+     que el navegador acerque al modo más parecido que tenga. */
+  const objW = (caps.width && caps.width.max) || 4096;
+  const objH = (caps.height && caps.height.max) || 2160;
+  if ((s.width || 0) >= objW) { pintarInfoCam(pref); return; }
+
+  const lista = camaras[pref] || [];
+  const cual = lista[camaraIdx[pref]]
+    ? { deviceId: { exact: lista[camaraIdx[pref]].deviceId } }
+    : { facingMode: { ideal: 'environment' } };
+
+  let nuevo = null;
+  try {
+    nuevo = await navigator.mediaDevices.getUserMedia({
+      video: Object.assign({}, cual, { width: { ideal: objW }, height: { ideal: objH } })
+    });
+  } catch(e) {}
+  if (!nuevo) { pintarInfoCam(pref); return; }
+
+  const viejo = traerStream(pref);
+  if (viejo) viejo.getTracks().forEach(t => t.stop());
+  ponerStream(pref, nuevo);
+  await iniciarCtrlCam(pref, nuevo);
+  pintarInfoCam(pref);
+}
+
+/* Un solo lugar para todo lo que se hace después de abrir la cámara. */
+async function ajustarCamAbierta(pref) {
+  await prepararLentes(pref);
+  await subirAMaximo(pref);
 }
 
 const CLAVE_LENTE = 'nexo.lente.';
@@ -1700,7 +1758,7 @@ async function abrirCamAgr() {
     streamAgr = await abrirStreamCam('Agr');
     document.getElementById('videoAgr').srcObject = streamAgr;
     await iniciarCtrlCam('Agr', streamAgr);
-    prepararLentes('Agr');
+    ajustarCamAbierta('Agr');
     camAgrAbierta = true;
     status.textContent = 'Apuntá al código';
     scanAgr();
@@ -2116,7 +2174,7 @@ async function abrirCamSer() {
     streamSer = await abrirStreamCam('Ser');
     document.getElementById('videoSer').srcObject = streamSer;
     await iniciarCtrlCam('Ser', streamSer);
-    prepararLentes('Ser');
+    ajustarCamAbierta('Ser');
     camSerAbierta = true; scanLoopSer = true;
     lintSerActiva = false;
     status.textContent = wizardActivo ? 'Escaneá el producto a configurar' : 'Apuntá al código';
