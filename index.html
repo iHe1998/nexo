@@ -686,7 +686,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v64</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v65</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -703,6 +703,7 @@
       <div class="cam-dock">
         <button class="dock-btn" id="btnLintAgr" onclick="toggleLintAgr()" title="Linterna">🔦</button>
         <button class="dock-btn dock-zoom" id="btnZoomAgr" onclick="cicloZoom('Agr')" title="Zoom" style="display:none">1×</button>
+        <button class="dock-btn dock-zoom" id="btnResAgr" onclick="cicloRes('Agr')" title="Resolución" aria-label="Resolución">auto</button>
         <button class="dock-btn" id="btnLenteAgr" onclick="cicloLente('Agr')" title="Cambiar de cámara" aria-label="Cambiar de cámara" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.2h3.1l1.5-2.4h6.8l1.5 2.4H20a1.5 1.5 0 0 1 1.5 1.5v8.3A1.5 1.5 0 0 1 20 19.5H4a1.5 1.5 0 0 1-1.5-1.5V9.7A1.5 1.5 0 0 1 4 8.2z"/><path d="M9.6 13.6a2.4 2.4 0 0 1 4-1.8"/><path d="M14.4 13.6a2.4 2.4 0 0 1-4 1.8"/><path d="M13.6 10.2v1.6h-1.6M10.4 17v-1.6h1.6"/></svg></button>
         <span class="dock-wrap">
           <div class="cam-globo" id="globoOCR">
@@ -736,6 +737,7 @@
       <div class="cam-dock">
         <button class="dock-btn" id="btnLintSer" onclick="toggleLintSer()" title="Linterna" style="display:none">🔦</button>
         <button class="dock-btn dock-zoom" id="btnZoomSer" onclick="cicloZoom('Ser')" title="Zoom" style="display:none">1×</button>
+        <button class="dock-btn dock-zoom" id="btnResSer" onclick="cicloRes('Ser')" title="Resolución" aria-label="Resolución">auto</button>
         <button class="dock-btn" id="btnLenteSer" onclick="cicloLente('Ser')" title="Cambiar de cámara" aria-label="Cambiar de cámara" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.2h3.1l1.5-2.4h6.8l1.5 2.4H20a1.5 1.5 0 0 1 1.5 1.5v8.3A1.5 1.5 0 0 1 20 19.5H4a1.5 1.5 0 0 1-1.5-1.5V9.7A1.5 1.5 0 0 1 4 8.2z"/><path d="M9.6 13.6a2.4 2.4 0 0 1 4-1.8"/><path d="M14.4 13.6a2.4 2.4 0 0 1-4 1.8"/><path d="M13.6 10.2v1.6h-1.6M10.4 17v-1.6h1.6"/></svg></button>
         <div class="dock-hint">Alineá el código dentro del marco</div>
         <button class="dock-btn dock-close" onclick="cerrarCamSer()" title="Cerrar cámara">✕</button>
@@ -1249,7 +1251,60 @@ function puntajeLente(label) {
   return p;
 }
 
+/* ── RESOLUCIÓN ─────────────────────────────────────────────────────────────
+
+   La vista previa dejó de ser una cajita dentro de la página y pasó a ocupar
+   TODA la pantalla. El stream es el mismo que en la v25, pero ahora se muestra
+   mucho más grande, así que el navegador lo agranda y se ve blando. Eso explica
+   por qué se ve borroso con CUALQUIER lente: no es la lente, es la ampliación.
+
+   La cuenta, en un iPhone de 390x844 puntos con densidad 3:
+     pantalla real .............. 1170 x 2532 píxeles
+     stream de 1080p ............ 1080 x 1920
+     ampliación del lado largo .. 2532 / 1920 = 1,32x
+
+   En la v25 el video iba en una caja de ~340 puntos de ancho: ahí el mismo
+   stream se REDUCÍA, y por eso se veía nítido.
+
+   Entonces la resolución no se pide "al máximo" (eso ya salió mal: da el modo
+   de FOTO, que el video no sostiene) sino la que la pantalla necesita de
+   verdad. Pedir lo que se va a mostrar, ni más ni menos. */
+
+const CLAVE_RES = 'nexo.res.';
+const RES_OPCIONES = [0, 1080, 1440, 2160];   // 0 = automática, según pantalla
+
+function resGuardada(pref) {
+  try { const v = localStorage.getItem(CLAVE_RES + pref); return v == null ? 0 : +v || 0; }
+  catch(e) { return 0; }
+}
+function guardarRes(pref, v) { try { localStorage.setItem(CLAVE_RES + pref, String(v)); } catch(e) {} }
+
+/* Se sube al escalón estándar más chico que ya cubra la pantalla. Las cámaras
+   ofrecen modos fijos (720p, 1080p, 1440p, 4K); pedir un número intermedio
+   como "1632" no consigue nada mejor y hace impredecible cuál te dan. */
+const ESCALONES = [720, 1080, 1440, 2160];
+
+function altoSegunPantalla() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  /* El lado CORTO es el que manda: con object-fit: cover el video se agranda
+     hasta tapar la pantalla, y el primero en quedarse corto es ese. */
+  const corto = Math.min(screen.width || 0, screen.height || 0) * dpr;
+  for (const e of ESCALONES) if (e >= corto) return e;
+  return 2160;
+}
+
+function ladosPedidos(pref) {
+  const alto = resGuardada(pref) || altoSegunPantalla();
+  return { width: { ideal: Math.round(alto * 16 / 9) }, height: { ideal: alto } };
+}
+
+function etiquetaRes(pref) {
+  const v = resGuardada(pref);
+  return v ? (v >= 2160 ? '4K' : v + 'p') : 'auto';
+}
+
 const CLAVE_LENTE = 'nexo.lente.';
+
 function lenteGuardada(pref) {
   try { return localStorage.getItem(CLAVE_LENTE + pref) || null; } catch(e) { return null; }
 }
@@ -1334,8 +1389,8 @@ async function usarLente(pref, i, aMano) {
   /* Mismo perfil que abrirStreamCam: el piso de frameRate de la agrupadora
      viaja con la lente nueva. No sacarlo — ver el comentario de allá. */
   const base = pref === 'Ser'
-    ? { width: { ideal: 1920 }, height: { ideal: 1080 } }
-    : { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, min: 30 } };
+    ? ladosPedidos(pref)
+    : Object.assign({ frameRate: { ideal: 60, min: 30 } }, ladosPedidos(pref));
   const id = { deviceId: { exact: lista[i].deviceId } };
 
   let nuevo = null;
@@ -1369,6 +1424,32 @@ async function usarLente(pref, i, aMano) {
    confiable de "priorizar la mejor" en un teléfono donde los nombres no
    alcanzan para saber cuál es: la persona la ve, la elige una vez, y a partir
    de ahí la cámara abre siempre con esa. */
+/* Botón para probar resoluciones en el aparato, que es el único lugar donde se
+   puede saber cuál se ve mejor. Reabre la cámara con la lente que ya está. */
+function cicloRes(pref) {
+  const i = RES_OPCIONES.indexOf(resGuardada(pref));
+  const nueva = RES_OPCIONES[(i < 0 ? 0 : i + 1) % RES_OPCIONES.length];
+  guardarRes(pref, nueva);
+  const btn = document.getElementById('btnRes' + pref);
+  if (btn) btn.textContent = etiquetaRes(pref);
+  const lista = camaras[pref] || [];
+  if (lista.length) usarLente(pref, camaraIdx[pref], true);
+  else reabrirMismaCam(pref);
+}
+
+/* Sin lista de lentes (una sola cámara) igual hay que reabrir para que la
+   resolución nueva tenga efecto: no se puede cambiar en vivo. */
+async function reabrirMismaCam(pref) {
+  let nuevo = null;
+  try { nuevo = await abrirStreamCam(pref); } catch(e) {}
+  if (!nuevo) { mostrarToast('No se pudo reabrir la cámara'); return; }
+  const viejo = traerStream(pref);
+  if (viejo) viejo.getTracks().forEach(t => t.stop());
+  ponerStream(pref, nuevo);
+  await iniciarCtrlCam(pref, nuevo);
+  pintarInfoCam(pref);
+}
+
 function cicloLente(pref) {
   const lista = camaras[pref] || [];
   if (lista.length < 2) return;
@@ -1405,9 +1486,10 @@ function cicloLente(pref) {
 async function abrirStreamCam(pref) {
   const maxDetalle = pref === 'Ser';
   const intentos = maxDetalle
-    ? [{ facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+    ? [Object.assign({ facingMode: 'environment' }, ladosPedidos(pref)),
+       { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
        { facingMode: 'environment' }]
-    : [{ facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, min: 30 } },
+    : [Object.assign({ facingMode: { ideal: 'environment' }, frameRate: { ideal: 60, min: 30 } }, ladosPedidos(pref)),
        { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } },
        { facingMode: 'environment' }];
   let err = null;
@@ -1469,7 +1551,22 @@ function pintarInfoCam(pref, settings) {
   const fps = s.frameRate ? Math.round(s.frameRate) + ' fps' : '';
   const res = (s.width && s.height) ? s.width + '×' + s.height : '';
   const lente = nombreLente(pref);
-  document.getElementById('camInfo' + pref).textContent = [res, mp, fps, lente].filter(Boolean).join(' · ') || '—';
+
+  /* Cuánto agranda el navegador el video para llenar la pantalla. Arriba de 1
+     se está inventando detalle: es exactamente lo que se ve como "borroso",
+     y sin este número no hay forma de distinguirlo de un problema de foco. */
+  let amp = '';
+  if (s.width && s.height) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const v = document.getElementById('video' + pref);
+    const cajaL = Math.max(v.clientWidth, v.clientHeight) * dpr;
+    const cajaC = Math.min(v.clientWidth, v.clientHeight) * dpr;
+    const k = Math.max(cajaL / Math.max(s.width, s.height), cajaC / Math.min(s.width, s.height));
+    if (isFinite(k) && k > 0) amp = '×' + k.toFixed(2);
+  }
+  const btn = document.getElementById('btnRes' + pref);
+  if (btn) btn.textContent = etiquetaRes(pref);
+  document.getElementById('camInfo' + pref).textContent = [res, mp, fps, amp, lente].filter(Boolean).join(' · ') || '—';
 }
 
 
