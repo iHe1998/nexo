@@ -686,7 +686,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v65</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v66</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1483,15 +1483,41 @@ function cicloLente(pref) {
    Moraleja, que ya nos pasó dos veces en este archivo: pedirle "lo máximo" a
    la cámara no es pedirle lo mejor. Si se vuelve a tocar, comparar contra la
    v25 en un iPhone de verdad. */
+/* Los intentos BAJAN de a un escalón, no de golpe.
+
+   Esto fue un bug real: un POCO F6 Pro mostraba 0,9 MP, o sea 1280x720, en un
+   teléfono capaz de mucho más. Su pantalla pide 1440p, el primer intento lo
+   pedía con el piso duro de 30fps, la cámara no daba 1440p a 30fps, y el
+   siguiente intento de la lista era... 720p. Se saltaba 1080p entero.
+
+   El piso de frameRate es una restricción DURA: si la cámara no lo cumple,
+   getUserMedia tira error en vez de darte algo peor. Eso es lo que queremos
+   —mejor 720p nítido que 1080p movido— pero solo si antes probamos los
+   escalones del medio. */
+function escalonesDesde(alto) {
+  return [alto, 1440, 1080, 720].filter((v, i, a) => v <= alto && a.indexOf(v) === i);
+}
+
 async function abrirStreamCam(pref) {
   const maxDetalle = pref === 'Ser';
-  const intentos = maxDetalle
-    ? [Object.assign({ facingMode: 'environment' }, ladosPedidos(pref)),
-       { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
-       { facingMode: 'environment' }]
-    : [Object.assign({ facingMode: { ideal: 'environment' }, frameRate: { ideal: 60, min: 30 } }, ladosPedidos(pref)),
-       { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } },
-       { facingMode: 'environment' }];
+  const pedido = ladosPedidos(pref).height.ideal;
+  const intentos = [];
+
+  for (const alto of escalonesDesde(pedido)) {
+    const lados = { width: { ideal: Math.round(alto * 16 / 9) }, height: { ideal: alto } };
+    intentos.push(maxDetalle
+      ? Object.assign({ facingMode: 'environment' }, lados)
+      : Object.assign({ facingMode: { ideal: 'environment' }, frameRate: { ideal: 60, min: 30 } }, lados));
+  }
+
+  /* Último recurso de la agrupadora: sin el piso de frameRate. Se llega acá
+     solo si NINGUNA resolución lo cumplía, y ahí es preferible una cámara que
+     abre a una que no. No generalizar esto a los intentos de arriba. */
+  if (!maxDetalle) {
+    intentos.push({ facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } });
+  }
+  intentos.push({ facingMode: 'environment' });
+
   let err = null;
   for (const video of intentos) {
     try { return await navigator.mediaDevices.getUserMedia({ video }); } catch(e) { err = e; }
