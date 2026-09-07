@@ -686,7 +686,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v63</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v64</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1249,7 +1249,16 @@ function puntajeLente(label) {
   return p;
 }
 
+const CLAVE_LENTE = 'nexo.lente.';
+function lenteGuardada(pref) {
+  try { return localStorage.getItem(CLAVE_LENTE + pref) || null; } catch(e) { return null; }
+}
+function guardarLente(pref, id) {
+  try { localStorage.setItem(CLAVE_LENTE + pref, id); } catch(e) {}
+}
+
 function traerStream(pref) { return pref === 'Agr' ? streamAgr : streamSer; }
+
 function ponerStream(pref, s) {
   if (pref === 'Agr') streamAgr = s; else streamSer = s;
   document.getElementById('video' + pref).srcObject = s;
@@ -1280,28 +1289,45 @@ async function prepararLentes(pref) {
   const traseras = camaras_.filter(d => !/front|frontal|user|delantera|selfie/i.test(d.label || ''));
   camaras[pref] = traseras;
 
-  const track = (traerStream(pref) || {}).getVideoTracks ? traerStream(pref).getVideoTracks()[0] : null;
-  const idActual = track && track.getSettings ? track.getSettings().deviceId : null;
-  const i = traseras.findIndex(d => d.deviceId === idActual);
-  camaraIdx[pref] = i >= 0 ? i : 0;
-
   const btn = document.getElementById('btnLente' + pref);
   if (btn) btn.style.display = traseras.length > 1 ? 'flex' : 'none';
+  if (!traseras.length) { pintarInfoCam(pref); return; }
 
-  /* Si el sistema agarró una lente peor que otra disponible, se cambia sola.
-     Una sola vez y solo si hay una mejor de verdad; si empatan no se toca
-     nada, porque lo que ya venía andando manda. */
-  if (traseras.length > 1) {
-    let mejor = camaraIdx[pref];
+  /* Qué lente queremos: la que eligió la persona a mano, y si no eligió
+     ninguna, la de mejor nombre. La elección manual gana siempre — en un
+     teléfono concreto la persona VE cuál enfoca, y el puntaje solo adivina. */
+  const guardada = lenteGuardada(pref);
+  let destino = traseras.findIndex(d => d.deviceId === guardada);
+  if (destino < 0) {
+    destino = 0;
     traseras.forEach((d, k) => {
-      if (puntajeLente(d.label) > puntajeLente(traseras[mejor].label)) mejor = k;
+      if (puntajeLente(d.label) > puntajeLente(traseras[destino].label)) destino = k;
     });
-    if (mejor !== camaraIdx[pref]) { await usarLente(pref, mejor); return; }
   }
-  pintarInfoCam(pref);
+
+  /* Y acá estaba el bug que dejaba al iPhone en la lente mala.
+
+     iOS casi nunca dice qué cámara está entregando: getSettings().deviceId
+     viene vacío. Antes eso caía en "no la encuentro en la lista, debe ser la
+     primera", y si esa primera era además la mejor puntuada, la comparación
+     daba "ya estás en la mejor" y el cambio NO SE HACÍA NUNCA. La app creía
+     estar en la lente buena mientras el sistema seguía entregando otra.
+
+     Ahora no se supone nada: solo se saltea el cambio si el navegador
+     CONFIRMA que ya estamos en la que queremos. Si no lo confirma, se abre por
+     deviceId igual. Cuesta medio segundo más al abrir la cámara, y a cambio la
+     lente es la que pedimos y no la que el sistema quiso darnos. */
+  const track = (traerStream(pref) || {}).getVideoTracks ? traerStream(pref).getVideoTracks()[0] : null;
+  const idActual = (track && track.getSettings && track.getSettings().deviceId) || null;
+  if (idActual && idActual === traseras[destino].deviceId) {
+    camaraIdx[pref] = destino;
+    pintarInfoCam(pref);
+    return;
+  }
+  await usarLente(pref, destino, false);
 }
 
-async function usarLente(pref, i) {
+async function usarLente(pref, i, aMano) {
   const lista = camaras[pref] || [];
   if (!lista[i]) return;
 
@@ -1320,7 +1346,11 @@ async function usarLente(pref, i) {
        rendirse: acá es preferible una lente que enfoque a una que no abre. */
     try { nuevo = await navigator.mediaDevices.getUserMedia({ video: id }); } catch(e2) {}
   }
-  if (!nuevo) { mostrarToast('Esa cámara no se pudo abrir'); return; }
+  /* En el camino automático se falla en silencio: si esa lente no abre nos
+     quedamos con la que ya venía andando y nadie se entera. Avisar en cada
+     apertura de cámara sería ruido. */
+  if (!nuevo) { if (aMano) mostrarToast('Esa cámara no se pudo abrir'); return; }
+
 
   const viejo = traerStream(pref);
   if (viejo) viejo.getTracks().forEach(t => t.stop());
@@ -1330,12 +1360,21 @@ async function usarLente(pref, i) {
   const btn = document.getElementById('btnLente' + pref);
   if (btn) btn.style.display = lista.length > 1 ? 'flex' : 'none';
   pintarInfoCam(pref);
+  /* Con la cámara ocupando toda la pantalla el cartelito de la esquina es
+     chico; el aviso confirma el cambio sin tener que buscarlo. */
+  if (aMano) mostrarToast('Cámara: ' + (nombreLente(pref) || 'otra') + ' · queda elegida');
 }
 
+/* La elección a mano queda GUARDADA por herramienta. Es la única forma
+   confiable de "priorizar la mejor" en un teléfono donde los nombres no
+   alcanzan para saber cuál es: la persona la ve, la elige una vez, y a partir
+   de ahí la cámara abre siempre con esa. */
 function cicloLente(pref) {
   const lista = camaras[pref] || [];
   if (lista.length < 2) return;
-  usarLente(pref, (camaraIdx[pref] + 1) % lista.length);
+  const i = (camaraIdx[pref] + 1) % lista.length;
+  guardarLente(pref, lista[i].deviceId);
+  usarLente(pref, i, true);
 }
 
 
