@@ -686,7 +686,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v67</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v68</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1593,14 +1593,26 @@ async function afinarCam(track, maxDetalle) {
   try { await track.applyConstraints(Object.assign({}, c, { advanced: adv })); }
   catch(e) { try { await track.applyConstraints({ advanced: adv }); } catch(e2) {} }
 
-  /* Si aun así la cámara entrega pocos cuadros, se baja la resolución: más vale
-     720p nítido que 1080p movido. */
-  if (!maxDetalle) {
-    const s = track.getSettings ? track.getSettings() : {};
-    if ((s.frameRate || 0) < 50 && (s.width || 0) > 1280) {
-      try { await track.applyConstraints({ width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: fpsTop } }); } catch(e) {}
-    }
-  }
+  /* ACÁ ESTABA EL "0,9 MP".
+
+     Había una regla que decía: si la cámara entrega menos de 50 fps y más de
+     1280 de ancho, bajar a 1280x720. La idea era "más vale 720p nítido que
+     1080p movido", pero el número estaba mal elegido: las cámaras de teléfono
+     entregan 30 fps, no 50. O sea que la condición se cumplía SIEMPRE, y todo
+     lo que abriéramos —1080p, 1440p, 4K, el modo máximo— terminaba pisado a
+     1280x720. Eso es exactamente 0,92 MP, que es el número que aparecía.
+
+     Antes no se notaba porque en vertical el ancho es el lado corto (1080) y
+     no superaba los 1280, así que la regla no llegaba a dispararse. Al subir
+     la resolución empezó a dispararse siempre.
+
+     Y explica el borroso del iPhone: 720p a pantalla completa en un iPhone 14
+     se agranda 3,5 veces.
+
+     No se reemplaza por nada. La protección contra el movido ya está donde
+     tiene que estar: el `min: 30` de la petición, que es una restricción dura
+     y obliga a la cámara a mantener la exposición corta. La v25 tampoco tenía
+     este recorte. */
   return track.getSettings ? track.getSettings() : {};
 }
 
