@@ -95,6 +95,35 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
+
+  /* ═══════════ LECTOR DE BARRAS ═══════════ */
+  /* El visor va ANCHO Y BAJO, no cuadrado: un código de barras lineal es una
+     tira. Con el cuadrado de las otras herramientas la persona lo centra y
+     igual le quedan las puntas afuera, que es justo donde están los patrones
+     de inicio y fin sin los cuales no decodifica nada. */
+  .visor-banda {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    width: 84%; aspect-ratio: 5/2;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
+    border-radius: 10px; pointer-events: none;
+  }
+  .bar-row {
+    /* Envuelve como .hist-row: un Code 128 puede ser largo y sin esto los
+       botones lo aprietan hasta partirlo al medio de una palabra. */
+    display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+    background: #fff; border: 1px solid #eee; border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 8px;
+  }
+  .bar-cod {
+    font-family: 'Courier New', monospace; font-weight: 700; font-size: 14px;
+    color: var(--verde); flex: 1; word-break: break-word; min-width: 150px;
+  }
+  .bar-tipo {
+    font-size: 9.5px; font-weight: 700; letter-spacing: .04em;
+    color: var(--indigo); background: #eef0fb;
+    border-radius: 4px; padding: 3px 6px; white-space: nowrap;
+  }
+
   /* ═══════════ BARRA INFERIOR ═══════════ */
   /* Todo en la zona del pulgar: la app se usa parada, con una caja en la otra
      mano. El escaneo es el botón central elevado. */
@@ -118,6 +147,14 @@
   .tab.on { color: var(--rojo); }
   .tab.on .tab-ico { filter: none; transform: translateY(-1px); }
   .tab:active .tab-ico { transform: scale(.86); }
+
+  /* El de barras va en SVG y no en emoji: no hay ningún emoji de código de
+     barras que se vea igual en todos los teléfonos. Como ya es monocromo, el
+     grayscale del resto no le aplica: toma el color de la pestaña —que es lo
+     mismo que el filtro logra con los emoji— y se apaga con opacidad. */
+  .tab-ico-svg { filter: none; opacity: .5; }
+  .tab-ico-svg svg { width: 19px; height: 19px; display: block; }
+  .tab.on .tab-ico-svg { filter: none; opacity: 1; }
 
   .tab-scan {
     flex: 0 0 auto; width: 54px; height: 54px; margin: 0 2px 14px;
@@ -611,6 +648,9 @@
   <button class="tab" id="tabSeries" onclick="irA('series')">
     <span class="tab-ico">🔍</span><span class="tab-lab">Series</span>
   </button>
+  <button class="tab" id="tabBarras" onclick="irA('barras')">
+    <span class="tab-ico tab-ico-svg"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="2.5" y="5" width="2" height="14" rx=".6"/><rect x="6" y="5" width="1.2" height="14" rx=".5"/><rect x="8.7" y="5" width="2.6" height="14" rx=".6"/><rect x="12.8" y="5" width="1.2" height="14" rx=".5"/><rect x="15.5" y="5" width="2" height="14" rx=".6"/><rect x="19" y="5" width="2.5" height="14" rx=".6"/></svg></span><span class="tab-lab">Barras</span>
+  </button>
   <button class="tab-scan" id="tabScan" onclick="escanearActual()" aria-label="Abrir cámara">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
   </button>
@@ -684,9 +724,35 @@
     </div>
   </section>
 
+  <!-- ══════════ VISTA: BARRAS ══════════ -->
+  <section class="view" id="viewBarras">
+    <div class="card card-crece">
+      <div class="label">Último leído</div>
+      <div class="result-box" id="resultBoxBar">
+        <span class="result-placeholder" id="resultValBar">El código aparecerá aquí</span>
+      </div>
+
+      <div class="unidades-header" style="margin-top:16px">
+        <div class="section-title" style="margin-bottom:0">Códigos leídos</div>
+        <div class="unidades-acciones">
+          <span class="badge" id="badgeBar">0</span>
+          <button class="btn-sm" id="cpBarTodo" onclick="copiarTodoBar('cpBarTodo')">Copiar</button>
+          <button class="btn-sm del" onclick="borrarTodoBar()">Borrar todo</button>
+        </div>
+      </div>
+      <div id="listaBarras">
+        <div class="empty-state">
+          <div class="empty-icon">🏷️</div>
+          Escaneá un código de barras.<br>Sirve para los de producto y los de etiqueta.
+          <div class="empty-tip">💡 Acercá el código de punta a punta dentro del marco.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v71</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v72</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -719,6 +785,31 @@
       </div>
     </div>
     <canvas id="canvasAgr" style="display:none"></canvas>
+  </div>
+</div>
+
+<!-- ══════════ MODAL CÁMARA (barras) ══════════ -->
+<div class="modal-overlay" id="camModalBar">
+  <div class="modal modal-cam">
+    <div class="cam-stage cam-fullscreen">
+      <video id="videoBar" autoplay playsinline muted></video>
+      <div class="visor-banda"><i></i><i></i><i></i><i></i><div class="scan-track"><span class="scan-line"></span></div></div>
+      <div class="cam-count" id="camCountBar">0</div>
+      <div class="cam-status" id="camStatusBar">Apuntá al código</div>
+      <div class="tick-overlay" id="tickBar">
+        <div class="tick-badge"><svg viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></svg></div>
+      </div>
+      <div class="cam-info" id="camInfoBar">—</div>
+      <div class="cam-dock">
+        <button class="dock-btn" id="btnLintBar" onclick="toggleLintBar()" title="Linterna">🔦</button>
+        <button class="dock-btn dock-zoom" id="btnZoomBar" onclick="cicloZoom('Bar')" title="Zoom" style="display:none">1×</button>
+        <button class="dock-btn dock-zoom" id="btnResBar" onclick="cicloRes('Bar')" title="Resolución" aria-label="Resolución">auto</button>
+        <button class="dock-btn" id="btnLenteBar" onclick="cicloLente('Bar')" title="Cambiar de cámara" aria-label="Cambiar de cámara" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.2h3.1l1.5-2.4h6.8l1.5 2.4H20a1.5 1.5 0 0 1 1.5 1.5v8.3A1.5 1.5 0 0 1 20 19.5H4a1.5 1.5 0 0 1-1.5-1.5V9.7A1.5 1.5 0 0 1 4 8.2z"/><path d="M9.6 13.6a2.4 2.4 0 0 1 4-1.8"/><path d="M14.4 13.6a2.4 2.4 0 0 1-4 1.8"/><path d="M13.6 10.2v1.6h-1.6M10.4 17v-1.6h1.6"/></svg></button>
+        <div class="dock-hint">Que entre de punta a punta</div>
+        <button class="dock-btn dock-close" onclick="cerrarCamBar()" title="Cerrar cámara">✕</button>
+      </div>
+    </div>
+    <canvas id="canvasBar" style="display:none"></canvas>
   </div>
 </div>
 
@@ -855,22 +946,30 @@
    NAVEGACIÓN ENTRE VISTAS
    ══════════════════════════════════════════════════════════ */
 
-const TITULOS = {
-  agrupadora: 'Extractor de Código Agrupadora',
-  series: 'Lector de N° Serie'
+/* Una entrada por herramienta: título, vista, pestaña y qué hace el botón
+   central de escaneo. Antes esto eran ternarios sueltos que asumían DOS
+   herramientas; al sumar la tercera había que tocar cuatro lugares y era
+   cuestión de tiempo que uno quedara sin actualizar. */
+const HERRAMIENTAS = {
+  agrupadora: { titulo: 'Extractor de Código Agrupadora', vista: 'viewAgrupadora', tab: 'tabAgrupadora', escanear: () => abrirCamAgr(),  cerrar: () => { if (camAgrAbierta) cerrarCamAgr(); } },
+  series:     { titulo: 'Lector de N° Serie',             vista: 'viewSeries',     tab: 'tabSeries',     escanear: () => toggleCamSer(),  cerrar: () => { if (camSerAbierta) cerrarCamSer(); } },
+  barras:     { titulo: 'Lector de Código de Barras',     vista: 'viewBarras',     tab: 'tabBarras',     escanear: () => toggleCamBar(),  cerrar: () => { if (camBarAbierta) cerrarCamBar(); } }
 };
 
 function irA(vista) {
-  // Cerrar cámaras activas al cambiar de sección
-  if (vista !== 'agrupadora' && camAgrAbierta) cerrarCamAgr();
-  if (vista !== 'series' && camSerAbierta) cerrarCamSer();
+  if (!HERRAMIENTAS[vista]) vista = 'agrupadora';
+
+  /* Cerrar la cámara de las otras: dos streams abiertos a la vez se pelean por
+     la cámara y el segundo abre en negro. */
+  Object.keys(HERRAMIENTAS).forEach(k => { if (k !== vista) HERRAMIENTAS[k].cerrar(); });
 
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.getElementById(vista === 'agrupadora' ? 'viewAgrupadora' : 'viewSeries').classList.add('active');
+  document.getElementById(HERRAMIENTAS[vista].vista).classList.add('active');
 
-  document.getElementById('tabAgrupadora').classList.toggle('on', vista === 'agrupadora');
-  document.getElementById('tabSeries').classList.toggle('on', vista === 'series');
-  document.getElementById('hdrTitle').textContent = TITULOS[vista];
+  Object.keys(HERRAMIENTAS).forEach(k => {
+    document.getElementById(HERRAMIENTAS[k].tab).classList.toggle('on', k === vista);
+  });
+  document.getElementById('hdrTitle').textContent = HERRAMIENTAS[vista].titulo;
 
   history.replaceState(null, '', '#' + vista);
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -996,10 +1095,238 @@ function confirmarOCRManual() {
   usarNumeroOCR(document.getElementById('ocrManual').value);
 }
 function escanearActual() {
-  if (document.getElementById('viewSeries').classList.contains('active')) toggleCamSer();
-  else abrirCamAgr();
+  const k = Object.keys(HERRAMIENTAS).find(k =>
+    document.getElementById(HERRAMIENTAS[k].vista).classList.contains('active'));
+  HERRAMIENTAS[k || 'agrupadora'].escanear();
 }
 
+
+/* ══════════════════════════════════════════════════════════
+   LECTOR DE CÓDIGO DE BARRAS LINEAL
+   ══════════════════════════════════════════════════════════
+
+   Tercera herramienta. No comparte nada con las otras dos más allá de la
+   cámara: no toca Firebase, no configura productos y no agrupa por
+   laboratorio. Es a propósito — lo pedido fue un lector simple.
+
+   Formatos: los lineales de uso común. EAN/UPC son los de producto, Code 128
+   y Code 39 los de etiqueta interna, ITF los de caja de cartón. NO se incluyen
+   QR ni DataMatrix acá: para eso están las otras dos herramientas, y sumarlos
+   solo haría más lento cada cuadro. */
+
+let barras = [];
+let streamBar = null, camBarAbierta = false, scanLoopBar = false;
+let lintBarActiva = false;
+
+/* Un código de barras es una TIRA: ancho y bajo. Recortar un cuadrado centrado
+   —lo que hace frameVisor para las series— le corta las puntas, que es
+   justamente donde están los patrones de inicio y fin. Sin ellos no decodifica.
+
+   Por eso se toma una BANDA: todo el ancho del cuadro y una franja central de
+   alto. Da la máxima resolución horizontal, que es la única que importa en un
+   lineal, y descarta el resto de la imagen en vez de encogerlo. */
+function frameBanda(video, canvas, ctx, fracAlto, maxAncho) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return false;
+  const alto = Math.round(vh * fracAlto);
+  const k = Math.min(1, maxAncho / vw);
+  canvas.width  = Math.round(vw * k);
+  canvas.height = Math.round(alto * k);
+  ctx.drawImage(video, 0, (vh - alto) / 2, vw, alto, 0, 0, canvas.width, canvas.height);
+  return true;
+}
+
+let lectorBar = null;
+function lectorBarras() {
+  if (!lectorBar && window.ZXing) {
+    const hints = new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.UPC_A,  ZXing.BarcodeFormat.UPC_E,
+      ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.ITF, ZXing.BarcodeFormat.CODABAR
+    ]);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    lectorBar = new ZXing.MultiFormatReader();
+    lectorBar.setHints(hints);
+  }
+  return lectorBar;
+}
+
+function nombreFormato(f) {
+  try { return String(ZXing.BarcodeFormat[f] || f).replace(/_/g, '-'); }
+  catch(e) { return ''; }
+}
+
+async function abrirCamBar() {
+  const status = document.getElementById('camStatusBar');
+  status.className = 'cam-status';
+  status.textContent = 'Iniciando cámara…';
+  document.getElementById('camModalBar').classList.add('active');
+  lintBarActiva = false;
+  document.getElementById('btnLintBar').classList.remove('on');
+  actualizarContadorBar();
+
+  try {
+    streamBar = await abrirStreamCam('Bar');
+    document.getElementById('videoBar').srcObject = streamBar;
+    await iniciarCtrlCam('Bar', streamBar);
+    ajustarCamAbierta('Bar');
+    camBarAbierta = true; scanLoopBar = true;
+    status.textContent = 'Apuntá al código';
+    scanBar();
+  } catch(e) {
+    status.className = 'cam-status err';
+    status.textContent = 'Sin acceso a la cámara';
+  }
+}
+
+function cerrarCamBar() {
+  scanLoopBar = false;
+  camBarAbierta = false;
+  lintBarActiva = false;
+  camCtrl.Bar = null;
+  document.getElementById('btnLintBar').classList.remove('on');
+  if (streamBar) { streamBar.getTracks().forEach(t => t.stop()); streamBar = null; }
+  document.getElementById('camModalBar').classList.remove('active');
+  document.getElementById('videoBar').srcObject = null;
+}
+
+function toggleCamBar() { camBarAbierta ? cerrarCamBar() : abrirCamBar(); }
+
+async function toggleLintBar() {
+  const c = camCtrl.Bar;
+  if (!c || !c.torch) return;
+  c.on = !c.on;
+  if (await aplicarLinterna('Bar')) {
+    lintBarActiva = c.on;
+    document.getElementById('btnLintBar').classList.toggle('on', c.on);
+  } else { c.on = !c.on; }
+}
+
+function scanBar() {
+  const video  = document.getElementById('videoBar');
+  const canvas = document.getElementById('canvasBar');
+  const ctx    = canvas.getContext('2d');
+
+  function tick() {
+    if (!scanLoopBar) return;
+    const reader = lectorBarras();
+    /* La banda es 0.42 del alto: entra un código con margen y no se cuela el
+       de al lado, que en una caja con varias etiquetas pasa seguido. */
+    if (reader && video.readyState === 4 && frameBanda(video, canvas, ctx, 0.42, 1600)) {
+      const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+      let result = null;
+      try {
+        result = reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum)));
+      } catch(e1) {
+        /* Mismo doble intento que las series: hay etiquetas impresas en
+           negativo y sin esto no entran nunca. */
+        try {
+          result = reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum.invert())));
+        } catch(e2) {}
+      }
+      /* reset() entre cuadros: MultiFormatReader guarda estado del intento
+         anterior y sin esto empieza a fallar despues de unas cuantas vueltas. */
+      try { reader.reset(); } catch(e) {}
+      if (result) onDecodeBar(result.getText(), result.getBarcodeFormat());
+    }
+    setTimeout(tick, 200);
+  }
+  video.onloadedmetadata = () => tick();
+  if (video.readyState === 4) tick();
+}
+
+function onDecodeBar(texto, formato) {
+  const dato = (texto || '').trim();
+  if (!dato) return;
+
+  if (barras.some(b => b.cod === dato)) {
+    avisarRepetido('Bar', dato, 'Ese código ya está en la lista');
+    return;
+  }
+
+  barras.unshift({ cod: dato, tipo: nombreFormato(formato) });
+  renderBarras();
+  actualizarContadorBar();
+  animarTick('tickBar', true);
+
+  const status = document.getElementById('camStatusBar');
+  status.className = 'cam-status ok';
+  status.textContent = dato;
+  setTimeout(() => {
+    if (camBarAbierta) { status.className = 'cam-status'; status.textContent = 'Apuntá al código'; }
+  }, 1200);
+}
+
+function actualizarContadorBar() {
+  document.getElementById('badgeBar').textContent = barras.length;
+  const c = document.getElementById('camCountBar');
+  if (c) c.textContent = barras.length;
+}
+
+const VACIO_BAR = '<div class="empty-state">'
+  + '<div class="empty-icon">🏷️</div>'
+  + 'Escaneá un código de barras.<br>Sirve para los de producto y los de etiqueta.'
+  + '<div class="empty-tip">💡 Que el código entre de punta a punta en el marco.</div>'
+  + '</div>';
+
+function renderBarras() {
+  const caja = document.getElementById('listaBarras');
+  const val  = document.getElementById('resultValBar');
+
+  if (!barras.length) {
+    caja.innerHTML = VACIO_BAR;
+    val.className = 'result-placeholder';
+    val.textContent = 'El código aparecerá aquí';
+    return;
+  }
+
+  const ult = barras[0];
+  val.className = '';
+  val.innerHTML = escapeHtml(ult.cod)
+    + ' <button class="btn-sm" id="cpBarUlt" onclick="copiarBar(0,\'cpBarUlt\')">Copiar</button>'
+    + (ult.tipo ? ' <span class="bar-tipo">' + escapeHtml(ult.tipo) + '</span>' : '');
+
+  caja.innerHTML = barras.map(function (b, i) {
+    return '<div class="bar-row">'
+      + '<span class="bar-cod">' + escapeHtml(b.cod) + '</span>'
+      + (b.tipo ? '<span class="bar-tipo">' + escapeHtml(b.tipo) + '</span>' : '')
+      + '<button class="btn-sm" id="cpBar' + i + '" onclick="copiarBar(' + i + ',\'cpBar' + i + '\')">Copiar</button>'
+      + '<button class="btn-sm del" onclick="borrarBar(' + i + ')">✕</button>'
+      + '</div>';
+  }).join('');
+}
+
+/* Se copia por ÍNDICE, no metiendo el código dentro del onclick.
+
+   Las otras dos herramientas sí lo meten inline, y ahí es tolerable porque lo
+   que leen son dígitos o seriales alfanuméricos. Acá no: Code 128 admite ASCII
+   completo, comillas incluidas, y una comilla simple en el código rompería el
+   atributo y dejaría el botón muerto. Por el índice no hay nada que escapar. */
+function copiarBar(i, btnId) {
+  if (!barras[i]) return;
+  copiar(barras[i].cod, btnId);
+}
+
+function borrarBar(i) {
+  barras.splice(i, 1);
+  renderBarras();
+  actualizarContadorBar();
+}
+
+function borrarTodoBar() {
+  if (!barras.length) return;
+  if (!confirm('¿Borrar los ' + barras.length + ' códigos leídos?')) return;
+  barras = [];
+  renderBarras();
+  actualizarContadorBar();
+}
+
+function copiarTodoBar(btnId) {
+  if (!barras.length) { mostrarToast('No hay códigos para copiar'); return; }
+  copiar(barras.map(function (b) { return b.cod; }).join('\n'), btnId);
+}
 
 /* ══════════════════════════════════════════════════════════
    UTILIDADES COMPARTIDAS
@@ -1214,7 +1541,7 @@ function actualizarContadorAgr() {
    hay que volver a pedir el stream. Queda solo la linterna on/off, que sí es
    estándar y sí responde. */
 
-const camCtrl = { Agr: null, Ser: null };
+const camCtrl = { Agr: null, Ser: null, Bar: null };
 
 /* ══════════════════════════════════════════════════════════
    ELECCIÓN DE LENTE
@@ -1233,8 +1560,8 @@ const camCtrl = { Agr: null, Ser: null };
    evalúa si conviene cambiar. Así el camino que ya funcionaba sigue siendo el
    punto de partida. */
 
-const camaras   = { Agr: [], Ser: [] };
-const camaraIdx = { Agr: 0, Ser: 0 };
+const camaras   = { Agr: [], Ser: [], Bar: [] };
+const camaraIdx = { Agr: 0, Ser: 0, Bar: 0 };
 
 const LENTE_MALA    = /ultra|gran ?angular|angle|tele|zoom|depth|infrared|monochrome/i;
 const LENTE_TRASERA = /back|rear|trasera|traseira|environment|arri[eè]re|r[üu]ck/i;
@@ -3067,8 +3394,7 @@ function cerrarTipIOS() {
 
   const hash = (location.hash || '').replace('#', '');
   initHojas();
-  if (hash === 'series') irA('series');
-  else irA('agrupadora');
+  irA(HERRAMIENTAS[hash] ? hash : 'agrupadora');
 
   /* Después del arranque, para no encimarse con la animación de entrada. */
   setTimeout(mostrarTipIOS, 2200);
