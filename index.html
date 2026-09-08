@@ -749,7 +749,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v73</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v74</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1155,6 +1155,56 @@ function nombreFormato(f) {
   catch(e) { return ''; }
 }
 
+/* ── LA CÁMARA DE BARRAS VA EN HORIZONTAL ───────────────────────────────────
+
+   Un código de barras es ancho. En vertical, el lado CORTO del cuadro es el
+   que cruza las barras, así que hay que alejarse para que el código entre
+   entero — y alejarse es justo lo que menos conviene. Girado, ese mismo código
+   cruza el lado largo: con un cuadro de 1080x1920 se pasa de 1080 a 1920
+   píxeles sobre las barras, que es la única dimensión que importa en un lineal.
+
+   El giro se pide SOLO para esta herramienta y se suelta al cerrar la cámara,
+   así el resto de la app sigue vertical como estaba.
+
+   Dónde funciona y dónde no:
+   - App instalada en Android: el navegador rota la pantalla solo y la persona
+     acompaña girando el teléfono.
+   - En una pestaña del navegador: la API exige estar instalado o en pantalla
+     completa, así que falla.
+   - iPhone: screen.orientation.lock NO EXISTE. Nunca va a andar ahí.
+
+   Por eso, cuando el bloqueo no prospera, se pide por texto. Un cartel no
+   reemplaza al giro automático, pero es lo único disponible en esos casos y
+   evita que la persona no entienda por qué le cuesta leer. */
+async function girarAHorizontal() {
+  try {
+    if (screen.orientation && screen.orientation.lock) {
+      await screen.orientation.lock('landscape');
+      return true;
+    }
+  } catch(e) {}
+  return false;
+}
+
+function soltarGiro() {
+  try {
+    if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
+  } catch(e) {}
+}
+
+function esHorizontal() {
+  return (window.innerWidth || 0) > (window.innerHeight || 0);
+}
+
+/* Se actualiza sola: si la persona gira el teléfono a mano, el pedido se va. */
+function refrescarPistaBar() {
+  const pista = document.querySelector('#camModalBar .dock-hint');
+  if (!pista) return;
+  pista.textContent = esHorizontal()
+    ? 'Que entre de punta a punta'
+    : 'Girá el teléfono: se lee mucho mejor';
+}
+
 async function abrirCamBar() {
   const status = document.getElementById('camStatusBar');
   status.className = 'cam-status';
@@ -1171,6 +1221,11 @@ async function abrirCamBar() {
     ajustarCamAbierta('Bar');
     camBarAbierta = true; scanLoopBar = true;
     status.textContent = 'Apuntá al código';
+
+    await girarAHorizontal();
+    refrescarPistaBar();
+    window.addEventListener('resize', refrescarPistaBar);
+
     scanBar();
   } catch(e) {
     status.className = 'cam-status err';
@@ -1179,6 +1234,8 @@ async function abrirCamBar() {
 }
 
 function cerrarCamBar() {
+  soltarGiro();
+  window.removeEventListener('resize', refrescarPistaBar);
   scanLoopBar = false;
   camBarAbierta = false;
   lintBarActiva = false;
@@ -1670,16 +1727,21 @@ async function subirAMaximo(pref) {
     ? { deviceId: { exact: lista[camaraIdx[pref]].deviceId } }
     : { facingMode: { ideal: 'environment' } };
 
+  /* Soltar antes de pedir, por lo mismo que reabrirCam: con la cámara todavía
+     tomada el sistema no la reconfigura y devuelve la resolución que ya tenía,
+     así que el modo máximo no subía nada. */
+  const viejo = traerStream(pref);
+  if (viejo) viejo.getTracks().forEach(t => t.stop());
+
   let nuevo = null;
   try {
     nuevo = await navigator.mediaDevices.getUserMedia({
       video: Object.assign({}, cual, { width: { ideal: objW }, height: { ideal: objH } })
     });
   } catch(e) {}
+  if (!nuevo) { try { nuevo = await abrirStreamCam(pref); } catch(e2) {} }
   if (!nuevo) { pintarInfoCam(pref); return; }
 
-  const viejo = traerStream(pref);
-  if (viejo) viejo.getTracks().forEach(t => t.stop());
   ponerStream(pref, nuevo);
   await iniciarCtrlCam(pref, nuevo);
   pintarInfoCam(pref);
@@ -1700,11 +1762,26 @@ function guardarLente(pref, id) {
   try { localStorage.setItem(CLAVE_LENTE + pref, id); } catch(e) {}
 }
 
-function traerStream(pref) { return pref === 'Agr' ? streamAgr : streamSer; }
+/* Una entrada por herramienta, no un ternario.
+
+   Con el ternario de dos ramas, 'Bar' caía en el else y TODO el manejo de
+   lentes y de resolución trabajaba sobre el stream de SERIES: paraba la cámara
+   equivocada y guardaba el stream nuevo en la variable equivocada. Es el mismo
+   tipo de suposición de "solo hay dos herramientas" que ya se sacó de irA().
+   Si algún día se agrega una cuarta, va acá también. */
+const STREAMS = {
+  Agr: { leer: () => streamAgr, guardar: s => { streamAgr = s; } },
+  Ser: { leer: () => streamSer, guardar: s => { streamSer = s; } },
+  Bar: { leer: () => streamBar, guardar: s => { streamBar = s; } }
+};
+
+function traerStream(pref) { return STREAMS[pref] ? STREAMS[pref].leer() : null; }
 
 function ponerStream(pref, s) {
-  if (pref === 'Agr') streamAgr = s; else streamSer = s;
-  document.getElementById('video' + pref).srcObject = s;
+  if (!STREAMS[pref]) return;
+  STREAMS[pref].guardar(s);
+  const v = document.getElementById('video' + pref);
+  if (v) v.srcObject = s;
 }
 
 function nombreLente(pref) {
@@ -1770,39 +1847,61 @@ async function prepararLentes(pref) {
   await usarLente(pref, destino, false);
 }
 
+/* Reabre la cámara con lo que esté elegido ahora: lente y resolución.
+
+   SIEMPRE suelta la cámara vieja ANTES de pedir la nueva, y ese orden es el
+   arreglo de un bug concreto: cambiar la calidad no hacía nada hasta cerrar y
+   volver a abrir la cámara. Pidiendo el stream nuevo con el viejo todavía
+   abierto, el sistema no puede reconfigurar el sensor y devuelve otra
+   referencia a LO MISMO que ya estaba andando, con la resolución vieja. Recién
+   cuando se libera puede abrir en otro modo.
+
+   El precio de soltar primero es que si la petición falla nos quedamos sin
+   cámara. Por eso hay tres escalones antes de darse por vencido: la lente
+   elegida con el perfil, la lente elegida sola, y por último la apertura
+   normal, que es la misma que se usa al abrir la cámara desde cero. */
+async function reabrirCam(pref, aMano) {
+  const viejo = traerStream(pref);
+  if (viejo) viejo.getTracks().forEach(t => t.stop());
+
+  const lista = camaras[pref] || [];
+  const d = lista[camaraIdx[pref]];
+  const id = d ? { deviceId: { exact: d.deviceId } } : null;
+
+  /* El piso de frameRate de la agrupadora viaja con la lente nueva.
+     No sacarlo — ver el comentario de abrirStreamCam. */
+  const base = pref === 'Ser'
+    ? ladosPedidos(pref)
+    : Object.assign({ frameRate: { min: 30 } }, ladosPedidos(pref));
+
+  const intentos = [];
+  if (id) intentos.push(Object.assign({}, id, base), id);
+
+  let nuevo = null;
+  for (const video of intentos) {
+    try { nuevo = await navigator.mediaDevices.getUserMedia({ video }); break; } catch(e) {}
+  }
+  if (!nuevo) { try { nuevo = await abrirStreamCam(pref); } catch(e) {} }
+  if (!nuevo) { if (aMano) mostrarToast('No se pudo reabrir la cámara'); return false; }
+
+  ponerStream(pref, nuevo);
+  await iniciarCtrlCam(pref, nuevo);
+  if (resGuardada(pref) === MAXIMO) await subirAMaximo(pref);
+  pintarInfoCam(pref);
+  return true;
+}
+
 async function usarLente(pref, i, aMano) {
   const lista = camaras[pref] || [];
   if (!lista[i]) return;
 
-  /* Mismo perfil que abrirStreamCam: el piso de frameRate de la agrupadora
-     viaja con la lente nueva. No sacarlo — ver el comentario de allá. */
-  const base = pref === 'Ser'
-    ? ladosPedidos(pref)
-    : Object.assign({ frameRate: { min: 30 } }, ladosPedidos(pref));
-  const id = { deviceId: { exact: lista[i].deviceId } };
-
-  let nuevo = null;
-  try {
-    nuevo = await navigator.mediaDevices.getUserMedia({ video: Object.assign({}, id, base) });
-  } catch(e) {
-    /* Esa lente puede no dar 30fps a 1080p. Se reintenta sin el piso antes de
-       rendirse: acá es preferible una lente que enfoque a una que no abre. */
-    try { nuevo = await navigator.mediaDevices.getUserMedia({ video: id }); } catch(e2) {}
-  }
-  /* En el camino automático se falla en silencio: si esa lente no abre nos
-     quedamos con la que ya venía andando y nadie se entera. Avisar en cada
-     apertura de cámara sería ruido. */
-  if (!nuevo) { if (aMano) mostrarToast('Esa cámara no se pudo abrir'); return; }
-
-
-  const viejo = traerStream(pref);
-  if (viejo) viejo.getTracks().forEach(t => t.stop());
+  const antes = camaraIdx[pref];
   camaraIdx[pref] = i;
-  ponerStream(pref, nuevo);
-  await iniciarCtrlCam(pref, nuevo);
+  const ok = await reabrirCam(pref, aMano);
+  if (!ok) { camaraIdx[pref] = antes; return; }
+
   const btn = document.getElementById('btnLente' + pref);
   if (btn) btn.style.display = lista.length > 1 ? 'flex' : 'none';
-  pintarInfoCam(pref);
   /* Con la cámara ocupando toda la pantalla el cartelito de la esquina es
      chico; el aviso confirma el cambio sin tener que buscarlo. */
   if (aMano) mostrarToast('Cámara: ' + (nombreLente(pref) || 'otra') + ' · queda elegida');
@@ -1814,28 +1913,14 @@ async function usarLente(pref, i, aMano) {
    de ahí la cámara abre siempre con esa. */
 /* Botón para probar resoluciones en el aparato, que es el único lugar donde se
    puede saber cuál se ve mejor. Reabre la cámara con la lente que ya está. */
-function cicloRes(pref) {
+/* La resolución no se puede cambiar en vivo: hay que reabrir la cámara. Lo que
+   faltaba era soltarla primero, ver reabrirCam(). */
+async function cicloRes(pref) {
   const i = RES_OPCIONES.indexOf(resGuardada(pref));
-  const nueva = RES_OPCIONES[(i < 0 ? 0 : i + 1) % RES_OPCIONES.length];
-  guardarRes(pref, nueva);
+  guardarRes(pref, RES_OPCIONES[(i < 0 ? 0 : i + 1) % RES_OPCIONES.length]);
   const btn = document.getElementById('btnRes' + pref);
   if (btn) btn.textContent = etiquetaRes(pref);
-  const lista = camaras[pref] || [];
-  if (lista.length) usarLente(pref, camaraIdx[pref], true);
-  else reabrirMismaCam(pref);
-}
-
-/* Sin lista de lentes (una sola cámara) igual hay que reabrir para que la
-   resolución nueva tenga efecto: no se puede cambiar en vivo. */
-async function reabrirMismaCam(pref) {
-  let nuevo = null;
-  try { nuevo = await abrirStreamCam(pref); } catch(e) {}
-  if (!nuevo) { mostrarToast('No se pudo reabrir la cámara'); return; }
-  const viejo = traerStream(pref);
-  if (viejo) viejo.getTracks().forEach(t => t.stop());
-  ponerStream(pref, nuevo);
-  await iniciarCtrlCam(pref, nuevo);
-  pintarInfoCam(pref);
+  if (await reabrirCam(pref, true)) mostrarToast('Calidad: ' + etiquetaRes(pref));
 }
 
 function cicloLente(pref) {
