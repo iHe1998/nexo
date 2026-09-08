@@ -622,7 +622,7 @@
 </div>
 
 <header>
-  <button class="hdr-logo" onclick="animarLogo()" aria-label="Nexo" title="Nexo">
+  <button class="hdr-logo" onclick="tocarLogo()" aria-label="Productos configurados" title="Productos configurados">
     <svg class="hdr-ico" id="hdrIco" viewBox="3 0.5 58 58" aria-hidden="true"
          fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
       <path class="h-caja"  d="M12 26 32 16l20 10v20L32 56 12 46z"/>
@@ -648,17 +648,14 @@
   <button class="tab" id="tabSeries" onclick="irA('series')">
     <span class="tab-ico">🔍</span><span class="tab-lab">Series</span>
   </button>
-  <button class="tab" id="tabBarras" onclick="irA('barras')">
-    <span class="tab-ico tab-ico-svg"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="2.5" y="5" width="2" height="14" rx=".6"/><rect x="6" y="5" width="1.2" height="14" rx=".5"/><rect x="8.7" y="5" width="2.6" height="14" rx=".6"/><rect x="12.8" y="5" width="1.2" height="14" rx=".5"/><rect x="15.5" y="5" width="2" height="14" rx=".6"/><rect x="19" y="5" width="2.5" height="14" rx=".6"/></svg></span><span class="tab-lab">Barras</span>
-  </button>
   <button class="tab-scan" id="tabScan" onclick="escanearActual()" aria-label="Abrir cámara">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
   </button>
+  <button class="tab" id="tabBarras" onclick="irA('barras')">
+    <span class="tab-ico tab-ico-svg"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="2.5" y="5" width="2" height="14" rx=".6"/><rect x="6" y="5" width="1.2" height="14" rx=".5"/><rect x="8.7" y="5" width="2.6" height="14" rx=".6"/><rect x="12.8" y="5" width="1.2" height="14" rx=".5"/><rect x="15.5" y="5" width="2" height="14" rx=".6"/><rect x="19" y="5" width="2.5" height="14" rx=".6"/></svg></span><span class="tab-lab">Barras</span>
+  </button>
   <button class="tab" onclick="abrirHistorial()">
     <span class="tab-ico">📊</span><span class="tab-lab">Historial</span>
-  </button>
-  <button class="tab" onclick="abrirSettings()">
-    <span class="tab-ico">⚙️</span><span class="tab-lab">Productos</span>
   </button>
 </nav>
 
@@ -752,7 +749,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v72</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v73</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -3286,6 +3283,24 @@ function aplicarActualizacion() {
    HTMLElement y un <svg> no lo tiene: devuelve undefined, no fuerza nada y la
    animación queda muda al segundo toque. Verificado en el navegador.
    getBoundingClientRect() sí existe en SVG y sí fuerza el layout. */
+/* El logo abre la hoja de productos.
+
+   La barra de abajo tenía seis lugares y el botón de cámara quedaba corrido a
+   un costado, que es el peor lugar posible para la acción principal de una app
+   que se usa con una mano. Productos es lo que menos se toca —la configura el
+   admin, una vez por producto— así que es lo que sale de la barra.
+
+   Queda "medio escondido" a propósito: no está rotulado, pero un toque en el
+   logo lo encuentra cualquiera. No es una contraseña, es sacarlo del camino.
+
+   La animación del glifo se mantiene y ahora cumple una segunda función: es el
+   acuse de recibo del toque, así que se ve que el logo hace algo aunque la
+   hoja tarde un instante en subir. */
+function tocarLogo() {
+  animarLogo();
+  abrirSettings();
+}
+
 function animarLogo() {
   const ico = document.getElementById('hdrIco');
   if (!ico) return;
