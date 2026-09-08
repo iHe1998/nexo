@@ -749,7 +749,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v75</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v76</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1655,22 +1655,29 @@ const CLAVE_RES = 'nexo.res.';
 const MAXIMO = -1;
 const RES_OPCIONES = [MAXIMO, 0, 1080, 1440, 2160];   // 0 = automática, según pantalla
 
-/* Sin elección previa arranca en AUTO, y eso está probado en los dos teléfonos
-   del equipo, no elegido de arriba.
+/* Sin elección previa arranca en MÁXIMO, a pedido: la mejor resolución que la
+   cámara pueda sostener A 30 FPS.
 
-   El modo MÁXIMO estuvo un rato como default a pedido explícito. Anduvo bien
-   en el POCO pero en el iPhone dejaba la imagen blanda: pedía 4K, y en ese
-   modo el iPhone enfoca y procesa peor. Con AUTO —que pide el escalón estándar
-   más chico que ya cubra la pantalla, o sea 1440p en ese teléfono— se ve
-   nítido. Confirmado por Joel en el aparato.
+   Los 30 fps no son un detalle, son la mitad del pedido. Cuando el modo
+   máximo estuvo como default sin ellos (v67), el iPhone quedaba blando — pero
+   ahí también se pedían 60 fps, y en v69 resultó que los 60 eran los
+   culpables: a esa velocidad el iPhone entra en un modo de captura con la
+   exposición más corta y menos margen para enfocar. Se arreglaron las dos
+   cosas juntas (v69 sacó los 60, v70 bajó a AUTO), así que nunca quedó claro
+   cuál de las dos pesaba.
 
-   O sea que la mejor calidad de imagen NO es la mayor cantidad de píxeles.
-   Es la tercera vez que este proyecto choca con lo mismo.
+   Esta combinación —máxima resolución, pero clavada a 30 fps— separa las dos
+   cosas. Si el iPhone vuelve a verse blando, era la resolución; si se ve bien,
+   eran los fps y AUTO nunca hizo falta.
 
-   MÁXIMO sigue disponible en el botón para el que lo quiera. */
+   Como el piso de 30 es una restricción DURA, la escalera baja sola hasta la
+   resolución más alta que la cámara pueda sostener a esa velocidad. O sea que
+   "máximo" acá significa el máximo utilizable, no el máximo del papel.
+
+   Si hay que volver atrás, es una línea: devolver el 0 (AUTO). */
 function resGuardada(pref) {
-  try { const v = localStorage.getItem(CLAVE_RES + pref); return v == null ? 0 : (+v || 0); }
-  catch(e) { return 0; }
+  try { const v = localStorage.getItem(CLAVE_RES + pref); return v == null ? MAXIMO : (+v || 0); }
+  catch(e) { return MAXIMO; }
 }
 function guardarRes(pref, v) { try { localStorage.setItem(CLAVE_RES + pref, String(v)); } catch(e) {} }
 
@@ -1733,10 +1740,22 @@ async function subirAMaximo(pref) {
   const viejo = traerStream(pref);
   if (viejo) viejo.getTracks().forEach(t => t.stop());
 
+  const tope = { width: { ideal: objW }, height: { ideal: objH } };
+
+  /* Los 30 fps mandan sobre los megapíxeles, y esto NO es negociable acá.
+
+     La primera versión probaba el máximo sin el piso si no entraba con él, y
+     terminaba en 3000px a 24 fps: más píxeles, pero movidos al menor pulso de
+     la mano. Eso es exactamente lo contrario de lo que sirve para leer un
+     código.
+
+     Si el máximo no sostiene los 30, no se toma: se vuelve a abrir con la
+     escalera normal, que baja hasta la resolución más alta que sí los aguante.
+     "Máximo" acá significa el máximo utilizable, no el del papel. */
   let nuevo = null;
   try {
     nuevo = await navigator.mediaDevices.getUserMedia({
-      video: Object.assign({}, cual, { width: { ideal: objW }, height: { ideal: objH } })
+      video: Object.assign({}, cual, tope, { frameRate: { ideal: 30, min: 30 } })
     });
   } catch(e) {}
   if (!nuevo) { try { nuevo = await abrirStreamCam(pref); } catch(e2) {} }
@@ -1995,7 +2014,18 @@ function escalonesDesde(alto) {
 function perfilesCam(pref, cual) {
   const maxDetalle = pref === 'Ser';
   const quien = cual || { facingMode: maxDetalle ? 'environment' : { ideal: 'environment' } };
-  const piso  = maxDetalle ? {} : { frameRate: { min: 30 } };
+
+  /* 30 fps en las TRES herramientas, y como piso DURO.
+
+     Antes las series iban sin ningún frameRate, porque se escanean de cerca y
+     con linterna: ahí sobra luz y la exposición sale corta igual. Pero sin
+     pedir nada, la cámara elige, y ya vimos que cuando elige puede irse a un
+     modo de 60 fps que enfoca y procesa peor.
+
+     Que sea DURO es lo que hace que la escalera baje de resolución hasta
+     encontrar un modo que sostenga los 30. Con un `ideal` no bajaría: abriría
+     en 4K a 24 fps y la imagen saldría movida al menor pulso. */
+  const piso = { frameRate: { ideal: 30, min: 30 } };
   const lista = [];
 
   for (const alto of escalonesDesde(ladosPedidos(pref).height.ideal)) {
@@ -2005,12 +2035,10 @@ function perfilesCam(pref, cual) {
     }));
   }
 
-  /* Último recurso de la agrupadora: sin el piso de frameRate. Se llega acá
-     solo si NINGUNA resolución lo cumplía, y ahí es preferible una cámara que
-     abre a una que no. No generalizar esto a los intentos de arriba. */
-  if (!maxDetalle) {
-    lista.push(Object.assign({}, quien, { width: { ideal: 1280 }, height: { ideal: 720 } }));
-  }
+  /* Últimos recursos, sin el piso. Se llega acá solo si NINGUNA resolución
+     sostenía los 30, y ahí es preferible una cámara que abre a una que no.
+     No generalizar esto a los intentos de arriba. */
+  lista.push(Object.assign({}, quien, { width: { ideal: 1280 }, height: { ideal: 720 } }));
   lista.push(quien);
   return lista;
 }
