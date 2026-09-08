@@ -749,7 +749,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v74</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v75</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1866,22 +1866,16 @@ async function reabrirCam(pref, aMano) {
 
   const lista = camaras[pref] || [];
   const d = lista[camaraIdx[pref]];
-  const id = d ? { deviceId: { exact: d.deviceId } } : null;
+  const cual = d ? { deviceId: { exact: d.deviceId } } : null;
 
-  /* El piso de frameRate de la agrupadora viaja con la lente nueva.
-     No sacarlo — ver el comentario de abrirStreamCam. */
-  const base = pref === 'Ser'
-    ? ladosPedidos(pref)
-    : Object.assign({ frameRate: { min: 30 } }, ladosPedidos(pref));
-
-  const intentos = [];
-  if (id) intentos.push(Object.assign({}, id, base), id);
-
+  /* La misma escalera que al abrir: si la resolución pedida no existe se baja
+     un escalón, en vez de rendirse y dejar que la cámara elija por su cuenta. */
   let nuevo = null;
-  for (const video of intentos) {
+  for (const video of perfilesCam(pref, cual)) {
     try { nuevo = await navigator.mediaDevices.getUserMedia({ video }); break; } catch(e) {}
   }
-  if (!nuevo) { try { nuevo = await abrirStreamCam(pref); } catch(e) {} }
+  /* Si esa lente no abrió con ningún perfil, se prueba sin exigirla. */
+  if (!nuevo && cual) { try { nuevo = await abrirStreamCam(pref); } catch(e) {} }
   if (!nuevo) { if (aMano) mostrarToast('No se pudo reabrir la cámara'); return false; }
 
   ponerStream(pref, nuevo);
@@ -1920,7 +1914,23 @@ async function cicloRes(pref) {
   guardarRes(pref, RES_OPCIONES[(i < 0 ? 0 : i + 1) % RES_OPCIONES.length]);
   const btn = document.getElementById('btnRes' + pref);
   if (btn) btn.textContent = etiquetaRes(pref);
-  if (await reabrirCam(pref, true)) mostrarToast('Calidad: ' + etiquetaRes(pref));
+  if (!await reabrirCam(pref, true)) return;
+
+  /* Si la cámara no puede dar lo pedido, la escalera baja un escalón sola. Sin
+     avisar, eso se ve exactamente como que el cambio "no tomó": el botón dice
+     1440p y la imagen sigue igual. Decirlo cuesta una línea y evita que la
+     persona siga tocando pensando que está roto.
+
+     El botón conserva lo ELEGIDO, no lo conseguido: si más adelante se cambia
+     a una lente que sí lo soporta, la elección sigue en pie. */
+  const s = (camCtrl[pref] && camCtrl[pref].track.getSettings)
+    ? camCtrl[pref].track.getSettings() : {};
+  const dio = Math.min(s.width || 0, s.height || 0);
+  const pedido = resGuardada(pref);
+
+  mostrarToast(pedido > 0 && dio && dio < pedido
+    ? 'Calidad ' + etiquetaRes(pref) + ': esta cámara llega a ' + dio + 'p'
+    : 'Calidad: ' + etiquetaRes(pref));
 }
 
 function cicloLente(pref) {
@@ -1971,28 +1981,43 @@ function escalonesDesde(alto) {
   return [alto, 1440, 1080, 720].filter((v, i, a) => v <= alto && a.indexOf(v) === i);
 }
 
-async function abrirStreamCam(pref) {
-  const maxDetalle = pref === 'Ser';
-  const pedido = ladosPedidos(pref).height.ideal;
-  const intentos = [];
+/* Arma los perfiles a probar, de mejor a peor.
 
-  for (const alto of escalonesDesde(pedido)) {
-    const lados = { width: { ideal: Math.round(alto * 16 / 9) }, height: { ideal: alto } };
-    intentos.push(maxDetalle
-      ? Object.assign({ facingMode: 'environment' }, lados)
-      : Object.assign({ facingMode: { ideal: 'environment' }, frameRate: { min: 30 } }, lados));
+   Vive en UN SOLO lugar y lo usan los dos caminos: abrir la cámara y reabrirla
+   al cambiar de lente o de calidad. Tenerlo duplicado ya causó un bug: el
+   camino de reabrir no tenía la escalera de resoluciones, así que si el modo
+   pedido no existía saltaba directo a "sin restricciones" y la cámara volvía
+   sola a su modo de siempre. Desde afuera se veía como que el cambio de
+   calidad se aplicaba y enseguida se deshacía.
+
+   `cual` dice QUÉ cámara: el deviceId cuando hay una lente elegida, y si no,
+   la trasera a secas. */
+function perfilesCam(pref, cual) {
+  const maxDetalle = pref === 'Ser';
+  const quien = cual || { facingMode: maxDetalle ? 'environment' : { ideal: 'environment' } };
+  const piso  = maxDetalle ? {} : { frameRate: { min: 30 } };
+  const lista = [];
+
+  for (const alto of escalonesDesde(ladosPedidos(pref).height.ideal)) {
+    lista.push(Object.assign({}, quien, piso, {
+      width:  { ideal: Math.round(alto * 16 / 9) },
+      height: { ideal: alto }
+    }));
   }
 
   /* Último recurso de la agrupadora: sin el piso de frameRate. Se llega acá
      solo si NINGUNA resolución lo cumplía, y ahí es preferible una cámara que
      abre a una que no. No generalizar esto a los intentos de arriba. */
   if (!maxDetalle) {
-    intentos.push({ facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } });
+    lista.push(Object.assign({}, quien, { width: { ideal: 1280 }, height: { ideal: 720 } }));
   }
-  intentos.push({ facingMode: 'environment' });
+  lista.push(quien);
+  return lista;
+}
 
+async function abrirStreamCam(pref) {
   let err = null;
-  for (const video of intentos) {
+  for (const video of perfilesCam(pref, null)) {
     try { return await navigator.mediaDevices.getUserMedia({ video }); } catch(e) { err = e; }
   }
   throw err || new Error('sin cámara');
