@@ -749,7 +749,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v76</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v77</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -2745,11 +2745,21 @@ function onDecodeSer(raw) {
     avisarRepetido('Ser', raw, 'Esta serie ya se leyó');
     return;
   }
-  codigosSer.add(raw);
 
   const res = extraerSerieParaRaw(raw);
 
   if (res && res.serie) {
+    /* El código se marca como leído RECIÉN ACÁ, cuando ya entró a la lista.
+
+       Antes se marcaba antes de intentar extraer la serie, y eso lo quemaba:
+       si la extracción fallaba no se agregaba nada, pero el raw quedaba igual
+       en codigosSer, así que todos los cuadros siguientes caían en "Esta serie
+       ya se leyó". Desde afuera se veía como que la app decía que ya estaba
+       leída SIN que hubiera nada en la lista ni en el historial, y la única
+       salida era cerrar y volver a abrir la cámara, que es lo único que limpia
+       el Set. También explicaba el "a veces no me lee": tras un fallo, esa
+       caja quedaba bloqueada para el resto de la sesión de cámara. */
+    codigosSer.add(raw);
     agregarSerie(res, raw);
     animarTick('tickSer', res.configurado);
     actualizarContadorSer();
@@ -2760,14 +2770,40 @@ function onDecodeSer(raw) {
       status.className = 'cam-status warn';
       status.textContent = 'Producto sin configurar';
     }
+    volverAApuntarSer();
   } else {
-    status.className = 'cam-status err';
-    status.textContent = 'No se pudo leer la serie';
+    /* No se marca nada: los cuadros siguientes tienen que poder volver a
+       intentar. Moviendo un poco la caja o con mejor luz suele salir. */
+    avisarFalloSer(raw);
   }
+}
 
-  setTimeout(() => {
-    if (camSerAbierta) { status.className = 'cam-status'; status.textContent = 'Apuntá al código'; }
+/* Un solo temporizador para devolver el cartel a su estado normal. Antes cada
+   lectura creaba el suyo, y con el bucle corriendo cuatro veces por segundo se
+   pisaban entre ellos. */
+let timerEstadoSer = null;
+function volverAApuntarSer() {
+  clearTimeout(timerEstadoSer);
+  timerEstadoSer = setTimeout(() => {
+    const status = document.getElementById('camStatusSer');
+    if (camSerAbierta && status) { status.className = 'cam-status'; status.textContent = 'Apuntá al código'; }
   }, 1800);
+}
+
+/* Mismo freno que avisarRepetido: sin él, un DataMatrix que no se puede parsear
+   reescribiría el cartel cuatro veces por segundo mientras la cámara lo siga
+   viendo. Se sigue reintentando en cada cuadro; lo que se frena es el aviso. */
+let ultimoFalloSer = { raw: null, cuando: 0 };
+function avisarFalloSer(raw) {
+  const ahora = Date.now();
+  if (ultimoFalloSer.raw === raw && ahora - ultimoFalloSer.cuando < 2000) return;
+  ultimoFalloSer = { raw, cuando: ahora };
+
+  const status = document.getElementById('camStatusSer');
+  if (!status) return;
+  status.className = 'cam-status err';
+  status.textContent = 'No se pudo leer la serie';
+  volverAApuntarSer();
 }
 
 function actualizarContadorSer() {
