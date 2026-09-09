@@ -221,11 +221,11 @@
   .visor-frame { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); aspect-ratio: 1; box-shadow: 0 0 0 9999px rgba(0,0,0,0.45); border-radius: 10px; pointer-events: none; }
   .visor-frame.w62 { width: 62%; }
   .visor-frame.w58 { width: 58%; }
-  .visor-frame i { position: absolute; width: 26px; height: 26px; border: 3px solid var(--rojo); animation: cornerPulse 2.2s ease-in-out infinite; will-change: transform, opacity; }
-  .visor-frame i:nth-child(1) { top: -1px; left: -1px; border-right: none; border-bottom: none; border-radius: 8px 0 0 0; animation-delay: 0s; }
-  .visor-frame i:nth-child(2) { top: -1px; right: -1px; border-left: none; border-bottom: none; border-radius: 0 8px 0 0; animation-delay: .15s; }
-  .visor-frame i:nth-child(3) { bottom: -1px; left: -1px; border-right: none; border-top: none; border-radius: 0 0 0 8px; animation-delay: .3s; }
-  .visor-frame i:nth-child(4) { bottom: -1px; right: -1px; border-left: none; border-top: none; border-radius: 0 0 8px 0; animation-delay: .45s; }
+  .visor-frame i, .visor-banda i { position: absolute; width: 26px; height: 26px; border: 3px solid var(--rojo); animation: cornerPulse 2.2s ease-in-out infinite; will-change: transform, opacity; }
+  .visor-frame i:nth-child(1), .visor-banda i:nth-child(1) { top: -1px; left: -1px; border-right: none; border-bottom: none; border-radius: 8px 0 0 0; animation-delay: 0s; }
+  .visor-frame i:nth-child(2), .visor-banda i:nth-child(2) { top: -1px; right: -1px; border-left: none; border-bottom: none; border-radius: 0 8px 0 0; animation-delay: .15s; }
+  .visor-frame i:nth-child(3), .visor-banda i:nth-child(3) { bottom: -1px; left: -1px; border-right: none; border-top: none; border-radius: 0 0 0 8px; animation-delay: .3s; }
+  .visor-frame i:nth-child(4), .visor-banda i:nth-child(4) { bottom: -1px; right: -1px; border-left: none; border-top: none; border-radius: 0 0 8px 0; animation-delay: .45s; }
   .scan-track { position: absolute; top: 4%; bottom: 8%; left: 0; right: 0; pointer-events: none; animation: scanSweep 2.4s ease-in-out infinite; will-change: transform, opacity; }
   .scan-line { position: absolute; top: 0; left: 6%; right: 6%; height: 2px; background: linear-gradient(90deg, transparent, rgba(215,25,32,0.95), transparent); box-shadow: 0 0 10px 2px rgba(215,25,32,0.55); }
 
@@ -309,14 +309,15 @@
      Las esquinas pasan a ámbar y todo se acelera: la lectura del marco es
      "lo tengo, dame un segundo". El ámbar es el mismo que ya significa
      "atención, algo no está del todo bien" en el resto de la app. */
-  .visor-frame.viendo i { border-color: var(--ambar); animation-duration: .7s; }
-  .visor-frame.viendo .scan-track { animation-duration: .9s; }
-  .visor-frame.viendo .scan-line {
+  .visor-frame.viendo i, .visor-banda.viendo i { border-color: var(--ambar); animation-duration: .7s; }
+  .visor-frame.viendo .scan-track, .visor-banda.viendo .scan-track { animation-duration: .9s; }
+  .visor-frame.viendo .scan-line, .visor-banda.viendo .scan-line {
     background: linear-gradient(90deg, transparent, rgba(230,150,20,0.95), transparent);
     box-shadow: 0 0 10px 2px rgba(230,150,20,0.55);
   }
   @media (prefers-reduced-motion: reduce) {
-    .visor-frame.viendo i, .visor-frame.viendo .scan-track { animation-duration: .01ms; }
+    .visor-frame.viendo i, .visor-frame.viendo .scan-track,
+    .visor-banda.viendo i, .visor-banda.viendo .scan-track { animation-duration: .01ms; }
   }
   @keyframes scanSweep { 0% { transform: translateY(0%); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { transform: translateY(100%); opacity: 0; } }
   @keyframes dockIn { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
@@ -769,7 +770,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v78</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v79</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1304,6 +1305,7 @@ function scanBar() {
          anterior y sin esto empieza a fallar despues de unas cuantas vueltas. */
       try { reader.reset(); } catch(e) {}
       if (result) onDecodeBar(result.getText(), result.getBarcodeFormat());
+      else marcarViendo('Bar', hayCodigoDenso(ctx.getImageData(0, 0, canvas.width, canvas.height)));
     }
     setTimeout(tick, 200);
   }
@@ -2470,6 +2472,65 @@ function esFinder(run) {
       && Math.abs(modulo     - run[4]) < tol;
 }
 
+/* ¿HAY UN CÓDIGO DENSO EN EL CUADRO? Sirve para DataMatrix y para los
+   lineales, que no tienen los cuadrados de esquina del QR.
+
+   Lo que se busca es la firma de cualquier código impreso: una tira larga de
+   corridas oscuro/claro cuyos anchos son múltiplos enteros de un mismo módulo.
+   El módulo se estima con la corrida más chica de la propia racha, así el
+   detector funciona a cualquier distancia sin constantes de píxeles.
+
+   Y se exige que la racha se repita en SEIS FILAS CONSECUTIVAS. Esa es la
+   parte que evita los falsos positivos, y costó llegar a ella: sin coherencia
+   vertical, el texto impreso de la etiqueta —que también son muchas corridas
+   chicas alternadas— daba positivo en las dos herramientas. Un código de
+   barras mide 190px de alto y da unas 30 filas seguidas; un renglón de texto
+   da dos o tres y corta.
+
+   Medido a 1400x1400:
+     detecta DataMatrix de 800, 500 y 300px, y uno de 400px desenfocado
+     detecta códigos de barras a escala 2, 4 y 8
+     NO detecta DataMatrix de 180px o menos, que tampoco decodifican
+     falsos positivos: ninguno sobre papel en blanco, texto de 22/44/90px,
+     ruido, cartón con vetas ni bultos
+     costo 1,3ms por cuadro */
+const PASO_FILAS_DENSO = 6;
+const FILAS_SEGUIDAS   = 6;
+const CORRIDAS_MINIMAS = 12;
+
+function filaCuantizada(data, f, width) {
+  let ancho = 0, oscuro = data[f] < 128, racha = 0, u = 0;
+  for (let x = 1; x <= width; x++) {
+    const o = x < width ? data[f + x * 4] < 128 : !oscuro;
+    if (o === oscuro) { ancho++; continue; }
+    if (ancho >= 2 && ancho <= 90) {
+      if (racha === 0) { u = ancho; racha = 1; }
+      else {
+        const nu = Math.min(u, ancho);
+        const k = Math.round(ancho / nu);
+        /* Hasta 4 módulos seguidos del mismo color: más que eso ya no es un
+           código, es una mancha. */
+        if (k >= 1 && k <= 4 && Math.abs(ancho - k * nu) <= nu * 0.45) { u = nu; racha++; }
+        else { u = ancho; racha = 1; }
+      }
+      if (racha >= CORRIDAS_MINIMAS) return true;
+    } else racha = 0;
+    oscuro = o; ancho = 1;
+  }
+  return false;
+}
+
+function hayCodigoDenso(img) {
+  const { data, width, height } = img;
+  let seguidas = 0;
+  for (let y = PASO_FILAS_DENSO; y < height; y += PASO_FILAS_DENSO) {
+    if (filaCuantizada(data, y * width * 4, width)) {
+      if (++seguidas >= FILAS_SEGUIDAS) return true;
+    } else seguidas = 0;
+  }
+  return false;
+}
+
 /* El marco se queda en ámbar un rato después del último acierto: el detector
    corre por cuadro y sin esta inercia el estado parpadearía con cada mano
    temblorosa. */
@@ -2833,6 +2894,10 @@ function scanSer() {
         } catch(e2) {}
       }
       if (result) onDecodeSer(result.getText());
+      /* Si no entró, ¿al menos vemos un código? Distingue "acercate" de
+         "lo veo pero no lo puedo leer". Solo cuando falló: si entró, el tilde
+         ya dice todo, y así no se paga la lectura del canvas al pedo. */
+      else marcarViendo('Ser', hayCodigoDenso(ctx.getImageData(0, 0, canvas.width, canvas.height)));
     }
     setTimeout(tick, 250);
   }
