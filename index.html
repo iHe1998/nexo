@@ -298,6 +298,26 @@
   }
   @keyframes tickDraw { to { stroke-dashoffset: 0; } }
   @keyframes cornerPulse { 0%, 100% { opacity: .6; transform: scale(1); } 50% { opacity: 1; transform: scale(1.08); } }
+
+  /* ── "LO VEO, LO ESTOY LEYENDO" ──────────────────────────────────────────
+     Estado intermedio: el detector encontró los cuadrados de esquina del QR
+     pero todavía no se pudo decodificar. Sin esto, "no veo nada" y "veo el
+     código pero está mal impreso" se ven exactamente igual en pantalla —la
+     nada— y piden acciones opuestas: acercarse en un caso, usar el OCR en el
+     otro.
+
+     Las esquinas pasan a ámbar y todo se acelera: la lectura del marco es
+     "lo tengo, dame un segundo". El ámbar es el mismo que ya significa
+     "atención, algo no está del todo bien" en el resto de la app. */
+  .visor-frame.viendo i { border-color: var(--ambar); animation-duration: .7s; }
+  .visor-frame.viendo .scan-track { animation-duration: .9s; }
+  .visor-frame.viendo .scan-line {
+    background: linear-gradient(90deg, transparent, rgba(230,150,20,0.95), transparent);
+    box-shadow: 0 0 10px 2px rgba(230,150,20,0.55);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .visor-frame.viendo i, .visor-frame.viendo .scan-track { animation-duration: .01ms; }
+  }
   @keyframes scanSweep { 0% { transform: translateY(0%); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { transform: translateY(100%); opacity: 0; } }
   @keyframes dockIn { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
   /* La hoja sale como una carpeta de un archivador: más recorrido que antes
@@ -749,7 +769,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v77</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v78</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -2374,7 +2394,98 @@ function leerDesmoteado(canvas) {
   } catch(e) { return null; }
 }
 
+/* ¿HAY UN QR EN EL CUADRO, aunque no se pueda leer?
+
+   Los tres cuadrados de las esquinas de un QR ("finder patterns") tienen una
+   proporción fija de oscuro-claro-oscuro-claro-oscuro de 1:1:3:1:1 sobre
+   cualquier línea que los cruce por el centro. Buscar esa proporción es la
+   primera etapa de cualquier decodificador, y es MUCHO más barata que
+   decodificar: no hay que enderezar la perspectiva, ni leer módulos, ni correr
+   Reed-Solomon.
+
+   ZXing tiene esto adentro pero el build del navegador NO expone su Detector
+   ni su FinderPatternFinder —solo los de Aztec—, así que va escrito acá.
+
+   Se recorre UNA FILA CADA 6 PÍXELES, no la imagen entera.
+
+   El paso es fijo y chico a propósito. La primera versión repartía 24 filas a
+   lo alto del cuadro —una cada 53px— y solo veía QR grandes: el patrón de
+   esquina de un QR de 150px mide apenas 21px de alto, así que entre fila y
+   fila se colaba entero. Medido: con 24 filas detectaba el de 420px y perdía
+   los de 300, 150 y 80. Con paso de 6px entran todos y sigue costando nada.
+
+   Se piden DOS aciertos porque una sola línea a través del borde superior de
+   un QR cruza dos patrones. Con uno solo aparecían falsos positivos sobre
+   texto impreso y códigos de barras. */
+const PASO_FILAS_QR = 6;
+
+function hayPatronQR(img) {
+  const { data, width, height } = img;
+  const paso = PASO_FILAS_QR;
+  let aciertos = 0;
+
+  for (let y = paso; y < height; y += paso) {
+    const fila = y * width * 4;
+    /* Cinco corridas: oscuro, claro, oscuro, claro, oscuro. */
+    const run = [0, 0, 0, 0, 0];
+    let cual = 0;
+    let oscuroAnterior = data[fila] < 128;
+    if (!oscuroAnterior) cual = -1;   // arranca en claro: se descarta hasta el primer oscuro
+
+    for (let x = 0; x < width; x++) {
+      const oscuro = data[fila + x * 4] < 128;
+      if (oscuro === oscuroAnterior) {
+        if (cual >= 0) run[cual]++;
+      } else {
+        oscuroAnterior = oscuro;
+        if (cual < 0) { cual = 0; run[0] = 1; continue; }
+        if (cual < 4) { run[++cual] = 1; continue; }
+
+        /* Ya hay cinco corridas: se evalúa y se corre la ventana de a dos, que
+           es lo que mantiene la alternancia oscuro-primero. */
+        if (esFinder(run)) aciertos++;
+        run[0] = run[2]; run[1] = run[3]; run[2] = run[4];
+        run[3] = 1; cual = 3;
+      }
+      if (aciertos >= 2) return true;
+    }
+    if (cual === 4 && esFinder(run)) aciertos++;
+    if (aciertos >= 2) return true;
+  }
+  return false;
+}
+
+/* 1:1:3:1:1 con tolerancia de la mitad de un módulo, que es lo que usa el
+   algoritmo clásico. El piso de 3px por módulo evita que ruido de un par de
+   píxeles pase por patrón. */
+function esFinder(run) {
+  const total = run[0] + run[1] + run[2] + run[3] + run[4];
+  if (total < 21) return false;
+  const modulo = total / 7;
+  const tol = modulo / 2;
+  return Math.abs(modulo     - run[0]) < tol
+      && Math.abs(modulo     - run[1]) < tol
+      && Math.abs(modulo * 3 - run[2]) < tol * 3
+      && Math.abs(modulo     - run[3]) < tol
+      && Math.abs(modulo     - run[4]) < tol;
+}
+
+/* El marco se queda en ámbar un rato después del último acierto: el detector
+   corre por cuadro y sin esta inercia el estado parpadearía con cada mano
+   temblorosa. */
+const timersViendo = {};
+function marcarViendo(pref, si) {
+  const marco = document.querySelector('#camModal' + pref + ' .visor-frame, #camModal' + pref + ' .visor-banda');
+  if (!marco) return;
+  if (si) {
+    marco.classList.add('viendo');
+    clearTimeout(timersViendo[pref]);
+    timersViendo[pref] = setTimeout(() => marco.classList.remove('viendo'), 700);
+  }
+}
+
 function leerQRAgr(canvas, ctx, img) {
+
   /* 1) Estirar contraste SIEMPRE y devolverlo al canvas, así los intentos
         siguientes también lo aprovechan. Rescata los QR desteñidos. */
   if (estirarContraste(img)) ctx.putImageData(img, 0, 0);
@@ -2454,6 +2565,11 @@ function scanAgr() {
 
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const dato = leerQRAgr(canvas, ctx, img);
+
+    /* Si no entró, ¿al menos VEMOS un QR? Es la diferencia entre "acercate" y
+       "esta etiqueta está para el OCR", y hasta ahora las dos se veían igual.
+       Corre solo cuando falló: si entró, el tilde ya dice todo. */
+    if (!dato) marcarViendo('Agr', hayPatronQR(img));
 
     /* El robot ofrece ayuda recién cuando el QR lleva un rato sin entrar. */
     if (!dato && !globoMostrado && Date.now() - inicioScanAgr > MS_GLOBO_OCR) {
