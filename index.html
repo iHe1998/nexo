@@ -101,9 +101,18 @@
      tira. Con el cuadrado de las otras herramientas la persona lo centra y
      igual le quedan las puntas afuera, que es justo donde están los patrones
      de inicio y fin sin los cuales no decodifica nada. */
+  /* 96% del ancho, no 84%: el rectángulo ES la zona que se lee (ver
+     frameBanda), así que cada punto que se le saca de ancho es distancia de
+     lectura que se pierde. El 4% que queda es solo para que se vea que es un
+     recorte y no el borde de la pantalla.
+
+     El alto sale del ancho (8/3) pero con tope del 40% de la pantalla, y ese
+     tope es lo que lo mantiene con forma de banda al girar: sin él, en
+     horizontal daría 287px de alto sobre 375 de pantalla y volvería a ser un
+     cuadro. */
   .visor-banda {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
-    width: 84%; aspect-ratio: 5/2;
+    width: 96%; aspect-ratio: 8/3; max-height: 40%;
     box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
     border-radius: 10px; pointer-events: none;
   }
@@ -770,7 +779,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v79</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v80</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1140,17 +1149,68 @@ let lintBarActiva = false;
    —lo que hace frameVisor para las series— le corta las puntas, que es
    justamente donde están los patrones de inicio y fin. Sin ellos no decodifica.
 
-   Por eso se toma una BANDA: todo el ancho del cuadro y una franja central de
-   alto. Da la máxima resolución horizontal, que es la única que importa en un
-   lineal, y descarta el resto de la imagen en vez de encogerlo. */
-function frameBanda(video, canvas, ctx, fracAlto, maxAncho) {
+   EL RECORTE ES EL RECTÁNGULO DIBUJADO. No una fracción fija del cuadro: se
+   mide dónde cayó el visor en la pantalla y se lleva ese rectángulo a píxeles
+   del video deshaciendo el object-fit: cover. Así la guía no puede volver a
+   mentir, en ninguna orientación ni en ningún teléfono.
+
+   Antes se analizaba TODO el ancho del cuadro y se encogía a 1600px, y eso
+   costaba de las dos maneras:
+
+   - En vertical el cover deja fuera de pantalla buena parte del ancho del
+     cuadro. Medido a 375x812 con un stream horizontal: se ve el 26% del ancho.
+     O sea que el 74% del presupuesto de píxeles se gastaba en algo que la
+     persona no ve y a lo que no puede apuntar.
+   - El rectángulo no coincidía con lo analizado en NINGÚN eje. Medido a
+     812x375: se dibujaban 669x268 y se leían 812x192. Un código apoyado en el
+     tercio de arriba o de abajo del rectángulo quedaba afuera y no se leía
+     nunca — desde afuera eso se ve como "a veces lo toma y a veces no".
+
+   Cuánto más lejos se lee ahora (fracción del ancho de PANTALLA que tiene que
+   ocupar el código; más chico = más lejos), medido con EAN-13 y 1,5px de
+   desenfoque:
+
+     vertical, máxima resolución    0,40  -> 0,25
+     horizontal, máxima resolución  0,125 -> 0,10
+     horizontal, 1080p              0,20  -> 0,175
+
+   La ganancia grande aparece con resolución alta, y tiene sentido: es
+   justamente ahí donde el encogido a 1600 tiraba más detalle. Con 1080p en
+   vertical casi no cambia (0,63 -> 0,60) porque los píxeles no están.
+
+   Y sale más barato que antes: 26ms contra 43ms por cuadro sin código, que es
+   el caso caro (sin nada que decodificar ZXing recorre todas las filas). El
+   tope de alto es lo que lo paga: ZXing escanea FILA POR FILA, así que el alto
+   es costo casi puro mientras que el ancho es la información. Por eso el tope
+   de ancho es diez veces el de alto y no al revés. */
+const ANCHO_BANDA_MAX = 2400;
+const ALTO_BANDA_MAX  = 240;
+
+function frameBanda(video, marco, canvas, ctx, maxAncho, maxAlto) {
   const vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return false;
-  const alto = Math.round(vh * fracAlto);
-  const k = Math.min(1, maxAncho / vw);
-  canvas.width  = Math.round(vw * k);
-  canvas.height = Math.round(alto * k);
-  ctx.drawImage(video, 0, (vh - alto) / 2, vw, alto, 0, 0, canvas.width, canvas.height);
+  const rv = video.getBoundingClientRect();
+  const rm = marco.getBoundingClientRect();
+  if (!rv.width || !rm.width) return false;
+
+  /* Deshacer el object-fit: cover. El video se agranda hasta tapar la caja
+     —manda el lado que le falta más— y queda centrado. */
+  const k  = Math.max(rv.width / vw, rv.height / vh);
+  const ox = rv.left + (rv.width  - vw * k) / 2;
+  const oy = rv.top  + (rv.height - vh * k) / 2;
+
+  let sx = (rm.left - ox) / k, sy = (rm.top - oy) / k;
+  let sw = rm.width / k,       sh = rm.height / k;
+  /* Clavarlo al cuadro: en vertical el rectángulo se pasa de los bordes del
+     video, y drawImage con origen negativo devuelve franjas vacías. */
+  if (sx < 0) { sw += sx; sx = 0; }
+  if (sy < 0) { sh += sy; sy = 0; }
+  sw = Math.min(sw, vw - sx); sh = Math.min(sh, vh - sy);
+  if (sw < 8 || sh < 8) return false;
+
+  canvas.width  = Math.round(Math.min(sw, maxAncho));
+  canvas.height = Math.round(Math.min(sh, maxAlto));
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
   return true;
 }
 
@@ -1283,13 +1343,17 @@ function scanBar() {
   const video  = document.getElementById('videoBar');
   const canvas = document.getElementById('canvasBar');
   const ctx    = canvas.getContext('2d');
+  const marco  = document.querySelector('#camModalBar .visor-banda');
 
   function tick() {
     if (!scanLoopBar) return;
     const reader = lectorBarras();
-    /* La banda es 0.42 del alto: entra un código con margen y no se cuela el
-       de al lado, que en una caja con varias etiquetas pasa seguido. */
-    if (reader && video.readyState === 4 && frameBanda(video, canvas, ctx, 0.42, 1600)) {
+    /* Se lee exactamente el rectángulo que se ve. Se mide en cada cuadro y no
+       una sola vez al abrir: el teléfono puede girar con la cámara abierta y
+       ahí el visor cambia de tamaño. Son dos getBoundingClientRect cinco veces
+       por segundo, no es un bucle de arrastre. */
+    if (reader && video.readyState === 4 &&
+        frameBanda(video, marco, canvas, ctx, ANCHO_BANDA_MAX, ALTO_BANDA_MAX)) {
       const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
       let result = null;
       try {
