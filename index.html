@@ -779,7 +779,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v80</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v81</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1236,55 +1236,33 @@ function nombreFormato(f) {
   catch(e) { return ''; }
 }
 
-/* ── LA CÁMARA DE BARRAS VA EN HORIZONTAL ───────────────────────────────────
+/* ── EL LECTOR DE BARRAS NO PIDE GIRAR EL TELÉFONO (y no hay que volver) ─────
 
-   Un código de barras es ancho. En vertical, el lado CORTO del cuadro es el
-   que cruza las barras, así que hay que alejarse para que el código entre
-   entero — y alejarse es justo lo que menos conviene. Girado, ese mismo código
-   cruza el lado largo: con un cuadro de 1080x1920 se pasa de 1080 a 1920
-   píxeles sobre las barras, que es la única dimensión que importa en un lineal.
+   Hasta la v80 esta herramienta pedía `screen.orientation.lock('landscape')` y,
+   cuando eso no prosperaba, ponía en el pie "Girá el teléfono: se lee mucho
+   mejor".
 
-   El giro se pide SOLO para esta herramienta y se suelta al cerrar la cámara,
-   así el resto de la app sigue vertical como estaba.
+   Era un parche para un problema que ya no está. El razonamiento original
+   —"un código de barras es ancho, así que conviene que cruce el lado largo del
+   cuadro"— daba por sentado que se analizaba TODO el cuadro. Desde la v80 el
+   recorte sale del rectángulo dibujado, y ese rectángulo es una banda ancha
+   tanto en vertical como en horizontal. La app se usa parada, con una caja en
+   la otra mano: pedirle a alguien que gire el teléfono para escanear es pedirle
+   la mano que no tiene.
 
-   Dónde funciona y dónde no:
-   - App instalada en Android: el navegador rota la pantalla solo y la persona
-     acompaña girando el teléfono.
-   - En una pestaña del navegador: la API exige estar instalado o en pantalla
-     completa, así que falla.
-   - iPhone: screen.orientation.lock NO EXISTE. Nunca va a andar ahí.
+   Y el pedido casi nunca se cumplía igual: la API exige estar instalado o en
+   pantalla completa, y en iPhone `screen.orientation.lock` **no existe**. Así
+   que en la mayoría de los aparatos lo único que quedaba era el cartel, que
+   sin el giro es un reproche y no una ayuda.
 
-   Por eso, cuando el bloqueo no prospera, se pide por texto. Un cartel no
-   reemplaza al giro automático, pero es lo único disponible en esos casos y
-   evita que la persona no entienda por qué le cuesta leer. */
-async function girarAHorizontal() {
-  try {
-    if (screen.orientation && screen.orientation.lock) {
-      await screen.orientation.lock('landscape');
-      return true;
-    }
-  } catch(e) {}
-  return false;
-}
+   Lo que sí se pierde, medido y asumido: en horizontal el código se lee a más
+   del doble de distancia (tiene que ocupar el 10% del ancho de pantalla contra
+   el 25% en vertical, con resolución máxima). Quien quiera esa distancia puede
+   girar el teléfono a mano y la app acompaña sola — el recorte se remide en
+   cada cuadro. Lo que ya no hace es pedirlo.
 
-function soltarGiro() {
-  try {
-    if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
-  } catch(e) {}
-}
-
-function esHorizontal() {
-  return (window.innerWidth || 0) > (window.innerHeight || 0);
-}
-
-/* Se actualiza sola: si la persona gira el teléfono a mano, el pedido se va. */
-function refrescarPistaBar() {
-  const pista = document.querySelector('#camModalBar .dock-hint');
-  if (!pista) return;
-  pista.textContent = esHorizontal()
-    ? 'Que entre de punta a punta'
-    : 'Girá el teléfono: se lee mucho mejor';
-}
+   El pie quedó con un texto fijo en el HTML ("Que entre de punta a punta"), que
+   es el consejo que sirve en las dos orientaciones. */
 
 async function abrirCamBar() {
   const status = document.getElementById('camStatusBar');
@@ -1303,10 +1281,6 @@ async function abrirCamBar() {
     camBarAbierta = true; scanLoopBar = true;
     status.textContent = 'Apuntá al código';
 
-    await girarAHorizontal();
-    refrescarPistaBar();
-    window.addEventListener('resize', refrescarPistaBar);
-
     scanBar();
   } catch(e) {
     status.className = 'cam-status err';
@@ -1315,8 +1289,6 @@ async function abrirCamBar() {
 }
 
 function cerrarCamBar() {
-  soltarGiro();
-  window.removeEventListener('resize', refrescarPistaBar);
   scanLoopBar = false;
   camBarAbierta = false;
   lintBarActiva = false;
