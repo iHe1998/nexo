@@ -288,6 +288,33 @@
   .ocr-cand small { display: block; font-family: inherit; font-size: 10px; font-weight: 600; color: var(--gris-txt); letter-spacing: 0.06em; text-transform: uppercase; margin-top: 3px; }
   .dock-hint { flex: 1; text-align: center; color: rgba(255,255,255,0.82); font-size: 11.5px; padding: 0 4px; }
 
+  /* ── EL PIE DEL LECTOR DE BARRAS MUESTRA LA ÚLTIMA LECTURA ─────────────────
+     Antes decía "Que entre de punta a punta". Un consejo fijo se lee una vez y
+     después es decorado: ocupa el mismo lugar todo el tiempo sin decir nada
+     nuevo. El último código leído, en cambio, cambia con cada lectura y
+     responde la pregunta que uno se hace escaneando en serie —"¿entró ese?"—
+     sin soltar la caja para ir a mirar la lista.
+
+     El `min-width: 0` no es opcional: sin él, un Code 128 largo —que puede
+     traer ASCII completo— estira el ítem flex y empuja la ✕ fuera de la
+     pantalla. Con el 0, recorta con puntos suspensivos y la barra no se mueve. */
+  .dock-ultimo { flex: 1; min-width: 0; text-align: center; padding: 0 4px; }
+  .dock-ultimo .cod {
+    font-family: 'Courier New', monospace; font-size: 12px; font-weight: 700;
+    color: #fff; letter-spacing: .02em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dock-ultimo .tipo {
+    font-size: 8.5px; font-weight: 700; letter-spacing: .06em;
+    color: rgba(255,255,255,0.5); text-transform: uppercase; margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* Un salto corto al cambiar: escaneando de corrido, dos códigos parecidos se
+     distinguen porque el pie se mueve, no porque uno lea los dígitos. */
+  .dock-ultimo.nuevo .cod { animation: ultimoIn .3s cubic-bezier(.2,.9,.25,1); }
+  @keyframes ultimoIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .dock-ultimo.nuevo .cod { animation: none; } }
+
   /* ── EL CARTEL DE DIAGNÓSTICO VA ABAJO, NO ARRIBA ───────────────────────────
      Estaba en `top: 14px; left: 14px`, o sea en la MISMA fila que el estado
      ("Apuntá al código", "Serie agregada", "Producto sin configurar"), que va
@@ -811,7 +838,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v82</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v83</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -864,7 +891,7 @@
         <button class="dock-btn dock-zoom" id="btnZoomBar" onclick="cicloZoom('Bar')" title="Zoom" style="display:none">1×</button>
         <button class="dock-btn dock-zoom" id="btnResBar" onclick="cicloRes('Bar')" title="Resolución" aria-label="Resolución">auto</button>
         <button class="dock-btn" id="btnLenteBar" onclick="cicloLente('Bar')" title="Cambiar de cámara" aria-label="Cambiar de cámara" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.2h3.1l1.5-2.4h6.8l1.5 2.4H20a1.5 1.5 0 0 1 1.5 1.5v8.3A1.5 1.5 0 0 1 20 19.5H4a1.5 1.5 0 0 1-1.5-1.5V9.7A1.5 1.5 0 0 1 4 8.2z"/><path d="M9.6 13.6a2.4 2.4 0 0 1 4-1.8"/><path d="M14.4 13.6a2.4 2.4 0 0 1-4 1.8"/><path d="M13.6 10.2v1.6h-1.6M10.4 17v-1.6h1.6"/></svg></button>
-        <div class="dock-hint">Que entre de punta a punta</div>
+        <div class="dock-ultimo" id="ultimoBar"></div>
         <button class="dock-btn dock-close" onclick="cerrarCamBar()" title="Cerrar cámara">✕</button>
       </div>
     </div>
@@ -1293,8 +1320,10 @@ function nombreFormato(f) {
    girar el teléfono a mano y la app acompaña sola — el recorte se remide en
    cada cuadro. Lo que ya no hace es pedirlo.
 
-   El pie quedó con un texto fijo en el HTML ("Que entre de punta a punta"), que
-   es el consejo que sirve en las dos orientaciones. */
+   El pie ya no lleva ningún consejo: desde la v83 muestra la última lectura,
+   que cambia con cada código y sirve para las dos orientaciones por igual. El
+   consejo de apuntar de punta a punta quedó donde sí se lee sin apuro, en el
+   estado vacío de la vista. */
 
 async function abrirCamBar() {
   const status = document.getElementById('camStatusBar');
@@ -1407,6 +1436,44 @@ function actualizarContadorBar() {
   document.getElementById('badgeBar').textContent = barras.length;
   const c = document.getElementById('camCountBar');
   if (c) c.textContent = barras.length;
+  mostrarUltimoBar();
+}
+
+/* El pie de la cámara de barras muestra LO ÚLTIMO QUE ENTRÓ a la lista.
+
+   Se llama desde actualizarContadorBar() a propósito, no desde onDecodeBar:
+   TODOS los caminos que tocan la lista —leer, borrar uno, borrar todo y abrir
+   la cámara— ya pasan por el contador. Colgándolo de ahí, el pie no puede
+   quedar desfasado de la lista, que es la única fuente de verdad. Si algún día
+   aparece otro camino que modifique `barras`, que llame al contador y el pie
+   lo sigue solo.
+
+   Muestra lo último AGREGADO, no lo último visto: si apuntás a un código que
+   ya está en la lista, el pie no cambia. Eso es deliberado —el pie tiene que
+   coincidir con la lista— y para ese caso ya está el cartel de arriba, que
+   avisa "Ese código ya está en la lista".
+
+   El texto va por textContent y no por innerHTML: Code 128 admite ASCII
+   completo, así que un código puede traer `<` o comillas. Es la misma razón
+   por la que copiar va por índice y no metiendo el código en el onclick. */
+function mostrarUltimoBar() {
+  const box = document.getElementById('ultimoBar');
+  if (!box) return;
+
+  const ultimo = barras[0];
+  if (!ultimo) { box.textContent = ''; box.classList.remove('nuevo'); return; }
+
+  if (!box.firstChild) {
+    box.innerHTML = '<div class="cod"></div><div class="tipo"></div>';
+  }
+  box.querySelector('.cod').textContent  = ultimo.cod;
+  box.querySelector('.tipo').textContent = ultimo.tipo || '';
+
+  /* Reiniciar la animación. Acá sí sirve offsetWidth —box es un div— a
+     diferencia del glifo del header, que es SVG y no lo tiene. */
+  box.classList.remove('nuevo');
+  void box.offsetWidth;
+  box.classList.add('nuevo');
 }
 
 const VACIO_BAR = '<div class="empty-state">'
