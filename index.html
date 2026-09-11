@@ -860,7 +860,7 @@
         <div class="empty-state">
           <div class="empty-icon">🏷️</div>
           Escaneá un código de barras.<br>Sirve para los de producto y los de etiqueta.
-          <div class="empty-tip">💡 Acercá el código de punta a punta dentro del marco.</div>
+          <div class="empty-tip">💡 Acercá el código de lado a lado dentro del marco.</div>
         </div>
       </div>
     </div>
@@ -868,7 +868,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v84</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v85</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1352,7 +1352,7 @@ function nombreFormato(f) {
 
    El pie ya no lleva ningún consejo: desde la v83 muestra la última lectura,
    que cambia con cada código y sirve para las dos orientaciones por igual. El
-   consejo de apuntar de punta a punta quedó donde sí se lee sin apuro, en el
+   consejo de acercarlo de lado a lado quedó donde sí se lee sin apuro, en el
    estado vacío de la vista. */
 
 async function abrirCamBar() {
@@ -1509,7 +1509,7 @@ function mostrarUltimoBar() {
 const VACIO_BAR = '<div class="empty-state">'
   + '<div class="empty-icon">🏷️</div>'
   + 'Escaneá un código de barras.<br>Sirve para los de producto y los de etiqueta.'
-  + '<div class="empty-tip">💡 Que el código entre de punta a punta en el marco.</div>'
+  + '<div class="empty-tip">💡 Acercá el código de lado a lado dentro del marco.</div>'
   + '</div>';
 
 function renderBarras() {
