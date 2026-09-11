@@ -868,7 +868,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v85</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v86</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1007,7 +1007,7 @@
 <!-- ══════════ MODAL HISTORIAL ══════════ -->
 <div class="modal-overlay" id="historialOverlay">
   <div class="modal">
-    <div class="modal-title">📊 Historial · últimas 8 hs</div>
+    <div class="modal-title" id="tituloHistorial">📊 Historial</div>
     <select class="filtro-lab" id="filtroLabHist" onchange="filtrarHistorial()">
       <option value="">Todos los laboratorios</option>
     </select>
@@ -2859,7 +2859,24 @@ document.getElementById('inputAgr').addEventListener('keydown', e => {
 
 const LABORATORIOS = ['ABBVIE','ASTRAZENECA','AMGEN','ROCHE','BIOSIDUS','SANOFI AVENTIS'];
 const SIN_LAB = 'Sin clasificar';
-const HORAS_RETENCION = 8;
+/* Cuánto vive una lectura en el historial. Una sola constante para las dos
+   puntas, y las dos importan:
+
+   - Al ESCRIBIR arma el `expiresAt`, que es el campo con el que Firestore
+     borra el documento solo.
+   - Al LEER arma el `desde` de la consulta.
+
+   El que manda para lo que se ve es el de la CONSULTA, no el TTL: Firestore
+   borra "dentro de las 24hs" de vencido, no al minuto. O sea que bajar este
+   número esconde las lecturas viejas al instante, aunque los documentos que ya
+   estaban escritos con el vencimiento anterior tarden un rato más en
+   desaparecer de la base. No hay que hacer nada en la consola por esto: la
+   política de TTL apunta al campo `expiresAt`, no a un plazo fijo.
+
+   Bajó de 8 a 1 a pedido: el historial es para cruzar lo que se acaba de
+   escanear en el turno, no un registro. */
+const HORAS_RETENCION = 1;
+
 
 /* ─── Firebase ─── */
 const firebaseConfig = {
@@ -3927,8 +3944,19 @@ function cerrarTipIOS() {
     }, 1000);
   }
 
+  /* El plazo del título sale de HORAS_RETENCION y no escrito a mano: estaba
+     clavado en "últimas 8 hs" y es justo el tipo de texto que queda mintiendo
+     cuando alguien cambia la constante. */
+  const tit = document.getElementById('tituloHistorial');
+  if (tit) {
+    tit.textContent = '📊 Historial · ' + (HORAS_RETENCION === 1
+      ? 'última hora'
+      : 'últimas ' + HORAS_RETENCION + ' hs');
+  }
+
   const hash = (location.hash || '').replace('#', '');
   initHojas();
+
   irA(HERRAMIENTAS[hash] ? hash : 'agrupadora');
 
   /* Después del arranque, para no encimarse con la animación de entrada. */
