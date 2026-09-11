@@ -31,11 +31,41 @@
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
+  /* ── EL ALTO VA EN dvh, NO EN vh ────────────────────────────────────────────
+     Síntoma: "para ver lo de Herramienta interna hay que scrollear un poco".
+
+     `100vh` en el celular NO es la pantalla que se ve: es la pantalla con la
+     barra del navegador ESCONDIDA, que es el estado más grande posible. Al
+     abrir la app la barra está visible, así que el documento mide más que lo
+     que entra y sobra justo lo que ocupa esa barra.
+
+     Y lo que lo remata es la barra de pestañas, que es `position: fixed` y se
+     pega al borde de lo que se ve, no al final del documento. Con una barra de
+     navegador de ~56px y la pantalla de 812:
+
+       documento           812 de alto (100vh)
+       ventana visible     0 → 756
+       texto del pie       721 → 736   (en coordenadas del documento)
+       tabbar fija         698 → 756   ← se le monta encima
+
+     O sea que el pie no estaba abajo del todo: estaba DETRÁS de la barra de
+     pestañas. Por eso alcanzaba con scrollear un toque —eso esconde la barra
+     del navegador, la ventana crece a 812, la tabbar baja y el pie aparece.
+
+     `100dvh` es la altura de lo que se ve AHORA, así que el diseño entra
+     completo desde el primer cuadro y no hace falta scrollear. El `100vh` de
+     arriba queda de respaldo para navegadores viejos que no conocen `dvh`
+     (Chrome anterior a 108, Safari anterior a 15.4): ahí se ve como antes, no
+     peor.
+
+     Con las listas llenas el pie se va para abajo y hay que scrollear, y eso
+     está bien: la identidad tiene que estar al abrir, no estorbando siempre. */
   body {
     background: #f4f4f4;
     color: #222;
     font-family: 'Segoe UI', Arial, sans-serif;
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     flex-direction: column;
   }
@@ -838,7 +868,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v83</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v84</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
