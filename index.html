@@ -288,7 +288,39 @@
   .ocr-cand small { display: block; font-family: inherit; font-size: 10px; font-weight: 600; color: var(--gris-txt); letter-spacing: 0.06em; text-transform: uppercase; margin-top: 3px; }
   .dock-hint { flex: 1; text-align: center; color: rgba(255,255,255,0.82); font-size: 11.5px; padding: 0 4px; }
 
-  .cam-info { position: absolute; top: 14px; left: 14px; background: rgba(20,20,20,0.55); backdrop-filter: blur(14px) saturate(160%); border: 1px solid rgba(255,255,255,0.16); color: rgba(255,255,255,0.9); font-size: 10.5px; font-weight: 600; letter-spacing: .02em; padding: 6px 11px; border-radius: 20px; z-index: 6; }
+  /* ── EL CARTEL DE DIAGNÓSTICO VA ABAJO, NO ARRIBA ───────────────────────────
+     Estaba en `top: 14px; left: 14px`, o sea en la MISMA fila que el estado
+     ("Apuntá al código", "Serie agregada", "Producto sin configurar"), que va
+     centrado arriba. Medido a 375x812 con la línea real de diagnóstico:
+
+       cartel  14 → 296 px   (75% del ancho de la pantalla)
+       estado  53 → 322 px
+
+     Se pisaban SIEMPRE, con cualquiera de los tres textos de estado. Y como
+     los dos tenían `z-index: 6`, ganaba el que va después en el HTML —el
+     cartel—, así que el diagnóstico tapaba el mensaje que de verdad hay que
+     leer mientras se escanea.
+
+     Ahora va abajo, sobre el dock, que es donde viven los otros controles
+     técnicos y donde la vista no está trabajando: arriba está el estado y en
+     el medio el visor.
+
+     El `bottom: 62px` sale del dock, no de un número elegido a ojo:
+       14 + 42 (alto de los botones) + 6 de aire = 62.
+
+     Se probó 112px para dejar libre también el globo del robot del OCR, pero
+     eso rompe en horizontal: con 375px de alto el cartel caía DENTRO de la
+     banda del lector de barras (medido: cartel en y 235-263, banda 113-263).
+     Pegado al dock, un solo número anda en las dos orientaciones y también a
+     320x568.
+
+     El globo del OCR sí se le superpone, y está bien que así sea: el globo es
+     z-index 9 y el cartel 5, así que gana el globo. Es transitorio, aparece
+     recién a los 7 segundos y en ese momento importa más que el diagnóstico.
+
+     Y baja a `z-index: 5`: si por lo que sea algo vuelve a cruzarse, el que
+     gana tiene que ser el estado, no el diagnóstico. */
+  .cam-info { position: absolute; bottom: 62px; left: 14px; background: rgba(20,20,20,0.5); backdrop-filter: blur(14px) saturate(160%); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.82); font-size: 10.5px; font-weight: 600; letter-spacing: .02em; padding: 6px 11px; border-radius: 20px; z-index: 5; max-width: calc(100% - 28px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 
   .modal.modal-cam { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; border-radius: 0; padding: 0; background: #000; box-shadow: none; animation: none; }
@@ -779,7 +811,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v81</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v82</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
