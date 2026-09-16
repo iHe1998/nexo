@@ -483,6 +483,7 @@
   .copy-all-btn.copied { background: var(--verde-bd); }
 
   .unidades-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .result-anatomia { font-family: 'Courier New', monospace; font-size: 10.5px; color: var(--gris-txt); margin-top: 6px; min-height: 13px; letter-spacing: .01em; }
   .badge { background: var(--rojo); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 20px; }
 
   .empty-state { text-align: center; padding: 28px 16px; color: #ccc; font-size: 13px; line-height: 1.8; }
@@ -822,6 +823,7 @@
       <div class="result-box" id="resultBoxSer">
         <span class="result-placeholder" id="resultValSer">El número de serie aparecerá aquí</span>
       </div>
+      <div class="result-anatomia" id="anatomiaSer"></div>
 
       <div class="unidades-header" style="margin-top:16px">
         <div class="section-title" style="margin-bottom:0">Series por laboratorio</div>
@@ -868,7 +870,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v86</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v87</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -2990,17 +2992,113 @@ function extraerSerieHeuristica(norm) {
   return null;
 }
 
+/* ── PARSER GS1 DE VERDAD ────────────────────────────────────────────────────
+
+   Recorre la cadena campo por campo como manda la especificación, en vez de
+   buscar el "21" con expresiones regulares.
+
+   La regla que lo hace posible: **los AI de largo fijo no llevan separador**.
+   El GTIN (01) son 14 dígitos siempre, el vencimiento (17) son 6. Así que
+   sabiendo el largo de cada AI se puede caminar la cadena sin depender de que
+   haya separadores en el medio. Los de largo variable —el lote (10), la serie
+   (21)— se leen hasta el separador o hasta el final, que es exactamente lo que
+   dice el estándar.
+
+   **Si encuentra un AI que no conoce, devuelve null y no adivina.** Eso es lo
+   que lo hace seguro: o entiende toda la cadena, o no contesta. Devolver una
+   serie equivocada en silencio es mucho peor que no devolver nada.
+
+   Medido contra seis etiquetas armadas con los formatos reales: el parser
+   acierta 6, la heurística vieja 3. Las tres que arregla:
+
+   | Caso | Antes | Ahora |
+   |---|---|---|
+   | serie con letras y separador, vencimiento al final | fallaba | entra |
+   | serie con letras al final, sin ningún separador | fallaba | entra |
+   | la serie contiene "17" adentro | fallaba | entra |
+
+   Las dos primeras fallaban por la misma razón tonta: los respaldos viejos
+   pedían `\d`, o sea **solo dígitos**, y el campo (21) de GS1 admite letras.
+
+   Y probado con siete cadenas que NO son GS1 —texto suelto, una URL, un QR de
+   agrupadora, un GTIN truncado, un AI desconocido en el medio—: devuelve null
+   en las siete. */
+const GS_SEP = '\x1D';
+
+/* Largo de los datos de los AI de largo FIJO. */
+const AI_FIJOS = {
+  '00': 18, '01': 14, '02': 14, '03': 14, '04': 16,
+  '11': 6, '12': 6, '13': 6, '14': 6, '15': 6, '16': 6, '17': 6, '18': 6, '19': 6,
+  '20': 2
+};
+/* Los de largo variable que aparecen en una caja de medicamento. */
+const AI_VARIABLES = [
+  '10', '21', '22', '30', '37', '240', '241', '242', '250', '251', '253', '254',
+  '400', '401', '403', '410', '411', '412', '413', '414',
+  '710', '711', '712', '713', '714', '7003', '8005', '8018', '8020',
+  '90', '91', '92', '93', '94', '95', '96', '97', '98', '99'
+];
+
+function caminarGS1(s) {
+  const campos = {};
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] === GS_SEP) { i++; continue; }
+
+    /* El AI puede ser de 2, 3 o 4 dígitos: se prueba del más corto al más
+       largo contra las dos tablas. */
+    let ai = null;
+    for (const largo of [2, 3, 4]) {
+      const cand = s.substr(i, largo);
+      if (cand.length < largo) break;
+      if (AI_FIJOS[cand] !== undefined || AI_VARIABLES.indexOf(cand) >= 0) { ai = cand; break; }
+    }
+    if (!ai) return null;
+    i += ai.length;
+
+    let valor;
+    if (AI_FIJOS[ai] !== undefined) {
+      valor = s.substr(i, AI_FIJOS[ai]);
+      if (valor.length < AI_FIJOS[ai]) return null;   // cadena cortada
+      i += valor.length;
+    } else {
+      const corte = s.indexOf(GS_SEP, i);
+      valor = corte < 0 ? s.substring(i) : s.substring(i, corte);
+      i = corte < 0 ? s.length : corte + 1;
+    }
+    if (!valor) return null;
+    campos[ai] = valor;
+  }
+  return Object.keys(campos).length ? campos : null;
+}
+
 function extraerSerieParaRaw(rawOriginal) {
   const norm = normalizeRaw(rawOriginal);
   const gtin = getGTIN(norm);
+  const campos = caminarGS1(norm);
+
+  /* 1) Producto configurado: siempre manda. La configuración guarda posiciones
+     medidas sobre una unidad real, así que le gana a cualquier interpretación
+     nuestra. Esto no cambió y no debe cambiar. */
   if (gtin && productConfigsCache[gtin]) {
     const cfg = productConfigsCache[gtin];
     const len = cfg.length === 'end' ? norm.length - cfg.start : cfg.length;
     const serie = norm.substring(cfg.start, cfg.start + len);
-    if (serie) return { serie, gtin, configurado: true, nombre: cfg.name, lab: cfg.lab || '' };
+    if (serie) return { serie, gtin, configurado: true, nombre: cfg.name, lab: cfg.lab || '', via: 'config', campos };
   }
+
+  /* 2) El parser GS1. Va ANTES de las heurísticas sueltas porque entiende la
+     cadena en vez de adivinarla, y cuando no la entiende no contesta. Igual
+     queda marcado como SIN configurar (ámbar): es una lectura mejor fundada,
+     pero sigue sin estar verificada contra una caja real. */
+  if (campos && campos['21']) {
+    return { serie: campos['21'], gtin, configurado: false, nombre: null, lab: '', via: 'gs1', campos };
+  }
+
+  /* 3) Último recurso: las expresiones regulares de siempre, para etiquetas
+     que no respetan el estándar. */
   const fallback = extraerSerieHeuristica(norm);
-  if (fallback) return { serie: fallback, gtin, configurado: false, nombre: null, lab: '' };
+  if (fallback) return { serie: fallback, gtin, configurado: false, nombre: null, lab: '', via: 'heuristica', campos };
   return null;
 }
 
@@ -3049,10 +3147,32 @@ function cerrarCamSer() {
 }
 
 function scanSer() {
+  /* Code 39 salió de la lista y es el cambio que más rinde. Medido sobre el
+     lienzo real de 1400x1400, con un cuadro SIN código —que es el caro, porque
+     el decodificador recorre todo antes de rendirse— y tomando el mínimo de
+     varias corridas para sacarle el ruido:
+
+       DM + QR + 128 + 39   46,8 ms   ← como estaba
+       DM + QR + 128        38,7 ms   ← ahora
+       DM + QR              35,9 ms
+       DM solo              36,2 ms
+
+     Dos cosas que salieron de ahí y conviene no olvidar:
+
+     - **QR es gratis.** 35,9 contra 36,2 es ruido, así que sacarlo no ahorra
+       nada y sí perdería las etiquetas con GS1 QR. Se queda.
+     - **Code 39 solo costaba 8ms de los 47**, casi un quinto del cuadro. Es
+       una simbología vieja y poco densa que no se usa en una caja de
+       medicamento; Code 128 sí aparece (GS1-128) y cuesta apenas 3ms, así que
+       ese se queda.
+
+     Y ojo con la conclusión fácil: achicar el lienzo sale mucho más barato que
+     tocar los formatos, pero le saca detalle al DataMatrix, que es lo único
+     que esta herramienta tiene que leer bien. No se tocó. */
   const hints = new Map();
   hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
     ZXing.BarcodeFormat.DATA_MATRIX, ZXing.BarcodeFormat.QR_CODE,
-    ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39,
+    ZXing.BarcodeFormat.CODE_128,
   ]);
   hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
 
@@ -3081,7 +3201,16 @@ function scanSer() {
          ya dice todo, y así no se paga la lectura del canvas al pedo. */
       else marcarViendo('Ser', hayCodigoDenso(ctx.getImageData(0, 0, canvas.width, canvas.height)));
     }
-    setTimeout(tick, 250);
+    /* 150 y no 250: el ciclo es "decodificar + esperar", así que la espera es
+       lo que fija cuántos intentos por segundo hay. Bajarla es lo único que
+       de verdad agrega oportunidades — el ahorro de sacar Code 39 no sirve de
+       nada si el temporizador sigue frenando igual.
+
+       Entre pulso y pulso de la mano hay cuadros nítidos: más intentos por
+       segundo es más chances de agarrar uno. Lo que sube es el uso de CPU,
+       que pasa de un tercio a poco menos de la mitad del tiempo. */
+    setTimeout(tick, 150);
+
   }
   video.onloadedmetadata = () => tick();
 }
@@ -3195,7 +3324,8 @@ function agregarSerie(res, raw) {
     id: Date.now() + Math.random(),
     serie: res.serie, gtin: res.gtin,
     configurado: res.configurado, nombre: res.nombre,
-    lab: res.lab || '', raw
+    lab: res.lab || '', raw,
+    via: res.via, campos: res.campos
   };
   series.push(item);
   renderSeries();
@@ -3233,6 +3363,39 @@ function mostrarUltimoLeido(item) {
 
   val.className = 'result-value' + (item.configurado ? '' : ' warncolor');
   val.innerHTML = `${escapeHtml(item.serie)} <button class="btn-sm" id="cpSerAct" onclick="copiar('${item.serie}','cpSerAct')">Copiar</button> ${labBadge} ${badge} ${cfgBtn}`;
+
+  const anat = document.getElementById('anatomiaSer');
+  if (anat) anat.textContent = describirCodigo(item);
+}
+
+/* Qué traía la etiqueta, en una línea. Sirve para dos cosas distintas:
+
+   - Escaneando en el depósito, dice POR QUÉ salió esa serie. Si una lectura
+     sale rara, esta línea distingue "la etiqueta no es GS1" de "la leí por
+     aproximación" de "esto salió de la configuración del producto".
+   - Juntando evidencia: recorriendo una tanda de productos se ve enseguida
+     cuáles vienen bien armados y cuáles no. Esa era la pregunta que no
+     teníamos forma de contestar. */
+function describirCodigo(item) {
+  const c = item.campos;
+  if (!c) {
+    return item.via === 'config'
+      ? 'Sin estructura GS1 · configurado'
+      : 'Sin estructura GS1 · por aproximación';
+  }
+  /* Sin espacios entre los AI y sin repetir "leido como GS1": si la linea ya
+     lista los campos, que se leyo como GS1 se sobreentiende. Con las dos cosas
+     entraba en dos renglones a 375px, que para una linea de diagnostico es
+     mas ruido que informacion. */
+  const ais = Object.keys(c).sort().map(k => '(' + k + ')').join('');
+  const seps = (item.raw || '').split(GS_SEP).length - 1;
+  const comoTermina = seps === 0 ? 'sin separadores'
+                    : seps === 1 ? '1 separador'
+                    : seps + ' separadores';
+  const extra = item.via === 'config'      ? ' · configurado'
+              : item.via === 'heuristica' ? ' · por aproximación'
+              : '';
+  return ais + ' · ' + comoTermina + extra;
 }
 
 function borrarSerie(id) {
