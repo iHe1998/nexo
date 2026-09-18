@@ -870,7 +870,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v87</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v88</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1842,28 +1842,47 @@ function puntajeLente(label) {
 
 const CLAVE_RES = 'nexo.res.';
 const MAXIMO = -1;
-const RES_OPCIONES = [MAXIMO, 0, 1080, 1440, 2160];   // 0 = automática, según pantalla
+const RES_OPCIONES = [MAXIMO, 0, 480, 1080, 1440, 2160];   // 0 = automática, según pantalla
 
-/* Sin elección previa arranca en MÁXIMO, a pedido: la mejor resolución que la
-   cámara pueda sostener A 30 FPS.
+/* ── 480p SE PUEDE ELEGIR, PERO NO ES EL DEFAULT (y por qué) ─────────────────
 
-   Los 30 fps no son un detalle, son la mitad del pedido. Cuando el modo
-   máximo estuvo como default sin ellos (v67), el iPhone quedaba blando — pero
-   ahí también se pedían 60 fps, y en v69 resultó que los 60 eran los
-   culpables: a esa velocidad el iPhone entra en un modo de captura con la
-   exposición más corta y menos margen para enfocar. Se arreglaron las dos
-   cosas juntas (v69 sacó los 60, v70 bajó a AUTO), así que nunca quedó claro
-   cuál de las dos pesaba.
+   Apareció el pedido de poner las tres cámaras en 640x480 "porque es el sweet
+   spot", citando este hilo:
+   https://github.com/zxing-js/ngx-scanner/issues/365
 
-   Esta combinación —máxima resolución, pero clavada a 30 fps— separa las dos
-   cosas. Si el iPhone vuelve a verse blando, era la resolución; si se ve bien,
-   eran los fps y AUTO nunca hizo falta.
+   **El hilo dice lo contrario.** Ese 640x480 es el default que el autor del
+   issue estaba CRITICANDO: ngx-scanner lo elegía solo y eso degradaba la
+   detección de códigos chicos. Su arreglo fue SUBIR la resolución a
+   `width: { min: 640, ideal: 1920 }, height: { min: 400, ideal: 1080 }`.
+   TRY_HARDER no se menciona en ese hilo y no hay ninguna medición de frame
+   rate. Lo único aplicable de ahí es el recorte de una zona centrada, que esta
+   app ya hace con tres recortes afinados por herramienta.
 
-   Como el piso de 30 es una restricción DURA, la escalera baja sola hasta la
-   resolución más alta que la cámara pueda sostener a esa velocidad. O sea que
-   "máximo" acá significa el máximo utilizable, no el máximo del papel.
+   Igual 480p quedó **en el ciclo del botón**, porque la pregunta de fondo es
+   legítima y se contesta sola probándola en el depósito:
 
-   Si hay que volver atrás, es una línea: devolver el 0 (AUTO). */
+   | | |
+   |---|---|
+   | A favor | el recorte de series queda en 408x408 en vez de 1400x1400 y decodificar un cuadro sin código baja de **34,8ms a 11,5ms** |
+   | En contra | a pantalla completa se agranda **~5,6x** en un teléfono de densidad 3. El borroso del iPhone que costó seis versiones era esto mismo con 720p, que se agranda 3,5x |
+
+   La distinción que hay que tener clara para evaluarlo:
+
+   | | |
+   |---|---|
+   | Lo que necesita el DECODIFICADOR | pocos píxeles pero nítidos sobre el código |
+   | Lo que necesita la PERSONA | ver bien para apuntar y saber si enfocó |
+
+   Puede leer igual de bien y verse horrible. El número que lo decide es la
+   **ampliación** del cartel de diagnóstico (el ×N de abajo a la izquierda):
+   arriba de 1, el navegador está inventando detalle.
+
+   Y ojo con la ganancia de velocidad: **el temporizador la absorbe casi
+   entera.** El ciclo es "decodificar + esperar 150ms", así que pasar de 35ms a
+   11ms mueve el ciclo de 185 a 161 — un 13%, no un 3x. Para cobrar esos 24ms
+   habría que bajar también el temporizador.
+
+   El default sigue siendo MÁXIMO. */
 function resGuardada(pref) {
   try { const v = localStorage.getItem(CLAVE_RES + pref); return v == null ? MAXIMO : (+v || 0); }
   catch(e) { return MAXIMO; }
@@ -1884,13 +1903,24 @@ function altoSegunPantalla() {
   return 2160;
 }
 
+/* El ancho que le corresponde a cada alto.
+
+   480 va en 4:3 —640x480, la VGA de toda la vida— y no en 16:9. No es un
+   capricho: "640x480" es un modo que las cámaras ofrecen tal cual, mientras
+   que 854x480 puede existir o no. Pedir el número que el driver ya tiene es lo
+   mismo que se aprendió con los escalones: pedir un intermedio solo hace
+   impredecible cuál te dan. */
+function anchoPara(alto) {
+  return Math.round(alto === 480 ? alto * 4 / 3 : alto * 16 / 9);
+}
+
 function ladosPedidos(pref) {
   const modo = resGuardada(pref);
   /* En máximo se pide alto de entrada; después subirAMaximo() afina con lo que
      la cámara declare de verdad, que recién se puede leer con el stream ya
      abierto. */
   const alto = modo === MAXIMO ? 2160 : (modo || altoSegunPantalla());
-  return { width: { ideal: Math.round(alto * 16 / 9) }, height: { ideal: alto } };
+  return { width: { ideal: anchoPara(alto) }, height: { ideal: alto } };
 }
 
 function etiquetaRes(pref) {
@@ -2186,7 +2216,7 @@ function cicloLente(pref) {
    —mejor 720p nítido que 1080p movido— pero solo si antes probamos los
    escalones del medio. */
 function escalonesDesde(alto) {
-  return [alto, 1440, 1080, 720].filter((v, i, a) => v <= alto && a.indexOf(v) === i);
+  return [alto, 1440, 1080, 720, 480].filter((v, i, a) => v <= alto && a.indexOf(v) === i);
 }
 
 /* Arma los perfiles a probar, de mejor a peor.
@@ -2219,7 +2249,7 @@ function perfilesCam(pref, cual) {
 
   for (const alto of escalonesDesde(ladosPedidos(pref).height.ideal)) {
     lista.push(Object.assign({}, quien, piso, {
-      width:  { ideal: Math.round(alto * 16 / 9) },
+      width:  { ideal: anchoPara(alto) },
       height: { ideal: alto }
     }));
   }
