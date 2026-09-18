@@ -870,7 +870,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v88</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v89</span></footer>
 
 <!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -2554,32 +2554,49 @@ function estirarContraste(img) {
   return true;
 }
 
-/* Último intento: desmotear.
+/* Último intento: desmotear. Sirve para DOS defectos distintos que se arreglan
+   igual — fundir con un desenfoque lo que debería ser un bloque sólido, y
+   volver a separarlo con el estirado de contraste:
 
-   Cuando la cabeza térmica está gastada, cada módulo del QR sale como un puñado
-   de puntos en vez de un bloque sólido. Un desenfoque suave funde esos puntos y
-   devuelve el módulo; después el estirado de contraste lo separa de nuevo en
-   negro y blanco.
+   1. **Impresión térmica gastada**: cada módulo sale como un puñado de puntos.
+   2. **QR de puntos** ("dots"), los de diseño, donde cada módulo es un círculo
+      más chico que su celda y los módulos vecinos no se tocan.
 
-   El radio es CRÍTICO y depende del tamaño del módulo en la imagen analizada,
-   que a su vez depende de la distancia. Medido sobre el pipeline real (QR de
-   227px tras el reescalado):
+   **En los de puntos el que falla es jsQR, y falla SIEMPRE** — incluso con
+   círculos al 90% de la celda. Y el motivo no es leer los datos: es encontrar
+   los cuadrados de las esquinas. Un renglón que cruza un patrón de esquina
+   tiene que dar la proporción 1:1:3:1:1, y con los módulos separados esa
+   cuenta no cierra. Medido: con las esquinas dibujadas sólidas ZXing lee
+   incluso con los datos al 60%; con las esquinas también punteadas, no lee
+   nadie sin desenfoque.
 
-     moteo   sin filtro   r=1    r=1.5   r=2    r=3
-      10%      no lee     LEE     LEE    LEE   no lee
-      20%      no lee     LEE     LEE    LEE   no lee
-      30%      no lee     LEE     LEE    LEE   no lee
+   **El radio óptimo es ~0,3 veces el tamaño del módulo**, y por eso hay que
+   barrer varios: el módulo crece al acercarse. Medido sobre el pipeline real
+   (cuadro de 720x1280, QR de 29x29 módulos):
 
-   Un radio de 3px, que servía sobre un QR grande aislado, acá destruye los
-   módulos. Se alternan 1 y 2 entre intentos profundos para cubrir distintas
-   distancias sin pagar los dos en la misma vuelta. */
-const RADIOS_DESMOTEO = [1, 2];
+     tamaño del módulo    radios que leen
+        5,5 px            1 · 1,5 · 2
+        7,8 px            1,5 · 2 · 2,5 · 3
+       11,7 px            3,5 a 6
+       14,5 px            4,5 a 8
+
+   Con los radios viejos [1, 2] entraban **9 de 16** casos de prueba; con
+   [1, 2, 3, 6] entran **los 16**, incluidos los de moteo del 20, 40 y 50% que
+   ya andaban. Los dos radios chicos se conservan justamente por esos.
+
+   **Los radios grandes salen gratis**: medido, un intento cuesta ~34ms tanto
+   con radio 1 como con radio 6. El desenfoque lo hace la GPU y lo que pesa es
+   la pasada de jsQR. Así que no hay motivo para escatimar radios.
+
+   Ojo con la nota vieja que decía que r=3 "destruía los módulos": era cierta
+   PARA MOTEO a esa distancia, no para puntos. Son dos defectos con tamaños de
+   hueco distintos. */
+const RADIOS_DESMOTEO = [1, 2, 3, 6];
 let radioDesmoteo = 0;
 
 function leerDesmoteado(canvas) {
   try {
     const radio = RADIOS_DESMOTEO[radioDesmoteo % RADIOS_DESMOTEO.length];
-    radioDesmoteo++;
     const d = document.createElement('canvas');
     d.width = canvas.width; d.height = canvas.height;
     const x = d.getContext('2d');
@@ -2589,8 +2606,15 @@ function leerDesmoteado(canvas) {
     const im = x.getImageData(0, 0, d.width, d.height);
     estirarContraste(im);
     const r = jsQR(im.data, im.width, im.height, { inversionAttempts: 'dontInvert' });
-    return r && r.data ? r.data : null;
-  } catch(e) { return null; }
+    /* Si este radio acertó NO se avanza: el próximo intento vuelve a empezar
+       por él. Las etiquetas vienen de a tandas —mismo diseño, misma impresora,
+       misma distancia— así que después de la primera, el resto entra en el
+       primer intento profundo en vez de esperar a que el ciclo dé la vuelta.
+       Recién cuando falla se prueba el siguiente. */
+    if (r && r.data) return r.data;
+    radioDesmoteo++;
+    return null;
+  } catch(e) { radioDesmoteo++; return null; }
 }
 
 /* ¿HAY UN QR EN EL CUADRO, aunque no se pueda leer?
