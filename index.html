@@ -1,4 +1,67 @@
 <!DOCTYPE html>
+<!-- ═════════════════════════════════════════════════════════════════════════
+     NEXO · MAPA DEL ARCHIVO
+
+     Toda la app vive en este archivo a propósito, y no por comodidad. Son
+     tres motivos concretos:
+
+       · El service worker sirve las NAVEGACIONES a la red y todo lo demás a
+         la caché. Eso es seguro solamente porque no puede quedar HTML nuevo
+         con CSS o JS viejo. Separar archivos reabre esa puerta.
+       · Los deploys de GitHub Pages se cancelan entre sí cuando los archivos
+         van en commits separados, así que todo viaja en un commit solo.
+       · Se edita desde el celular por la web de GitHub, donde un archivo es
+         un commit.
+
+     CÓMO MOVERSE: buscá el nombre de la sección con Ctrl+F. Cada una empieza
+     con una línea  ═══ NOMBRE ═══...  y son las únicas con esa forma, así que
+     el nombre cae justo ahí. Van en este orden:
+
+     ESTILOS · adentro de <style>
+       HEADER
+       LECTOR DE BARRAS
+       BARRA INFERIOR
+       LAYOUT
+       BOTONES
+       CÁMARA
+       RESULTADOS
+       ARRANQUE
+       FOOTER
+       MODALES
+       CARTEL DE INSTALACIÓN · iPhone
+
+     PÁGINA · el HTML visible
+       ARRANQUE
+       VISTA: AGRUPADORA
+       VISTA: SERIES
+       VISTA: BARRAS
+       MODAL CÁMARA (agrupadora)
+       MODAL CÁMARA (barras)
+       MODAL CÁMARA (series)
+       MODAL SETTINGS
+       MODAL HISTORIAL
+       HOJA: NÚMERO LEÍDO POR OCR
+
+     CÓDIGO · adentro de <script>
+       NAVEGACIÓN ENTRE VISTAS
+       OCR DEL NÚMERO IMPRESO · plan B para etiquetas ilegibles
+       LECTOR DE CÓDIGO DE BARRAS LINEAL
+       UTILIDADES COMPARTIDAS
+       MÓDULO 1 · EXTRACTOR AGRUPADORA
+       CÁMARA · siempre a la máxima resolución del equipo
+       ELECCIÓN DE LENTE
+       MÓDULO 2 · LECTOR DE SERIES
+       WIZARD DE CONFIGURACIÓN
+       HISTORIAL
+       SERVICE WORKER + AVISO DE VERSIÓN NUEVA
+       LOGO DEL HEADER
+       CARTEL DE INSTALACIÓN · iPhone
+       ARRANQUE
+       HOJAS · la solapa gris es el control de cierre
+
+     Lo que NO está acá es el POR QUÉ de cada decisión: eso vive en CLAUDE.md
+     junto a las mediciones que lo respaldan. Este índice dice DÓNDE.
+     ═════════════════════════════════════════════════════════════════════ -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -70,7 +133,7 @@
     flex-direction: column;
   }
 
-  /* ═══════════ HEADER  ═══════════ */
+  /* ═══ HEADER ═══════════════════════════════════════════════════════════ */
   header {
     background: var(--rojo);
     padding: 0 18px;
@@ -126,7 +189,7 @@
   }
 
 
-  /* ═══════════ LECTOR DE BARRAS ═══════════ */
+  /* ═══ LECTOR DE BARRAS ═════════════════════════════════════════════════ */
   /* El visor va ANCHO Y BAJO, no cuadrado: un código de barras lineal es una
      tira. Con el cuadrado de las otras herramientas la persona lo centra y
      igual le quedan las puntas afuera, que es justo donde están los patrones
@@ -163,7 +226,7 @@
     border-radius: 4px; padding: 3px 6px; white-space: nowrap;
   }
 
-  /* ═══════════ BARRA INFERIOR ═══════════ */
+  /* ═══ BARRA INFERIOR ═══════════════════════════════════════════════════ */
   /* Todo en la zona del pulgar: la app se usa parada, con una caja en la otra
      mano. El escaneo es el botón central elevado. */
   .tabbar {
@@ -207,7 +270,7 @@
 
   .unidades-acciones { display: flex; align-items: center; gap: 8px; }
 
-  /* ═══════════ LAYOUT ═══════════ */
+  /* ═══ LAYOUT ═══════════════════════════════════════════════════════════ */
   main { flex: 1; padding: 20px 16px; max-width: 620px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; }
   .view { display: none; animation: viewIn 0.2s ease; }
   .view.active { display: flex; flex-direction: column; flex: 1; }
@@ -236,7 +299,7 @@
   textarea:focus { border-color: var(--rojo); }
   textarea::placeholder { color: #bbb; }
 
-  /* ═══════════ BOTONES ═══════════ */
+  /* ═══ BOTONES ══════════════════════════════════════════════════════════ */
   .btn-row { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
   .btn { flex: 1; padding: 11px; background: var(--rojo); color: #fff; border: none; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s, transform 0.1s; display: flex; align-items: center; justify-content: center; gap: 6px; }
   .btn:hover { background: var(--rojo-osc); }
@@ -251,7 +314,7 @@
 
   .divider { margin: 22px 0; border: none; border-top: 1.5px solid #f0f0f0; }
 
-  /* ═══════════ CÁMARA ═══════════ */
+  /* ═══ CÁMARA ═══════════════════════════════════════════════════════════ */
   .cam-stage { position: relative; border-radius: 10px; overflow: hidden; background: #000; width: 100%; }
   .cam-stage.ratio-1 { aspect-ratio: 1; }
   .cam-stage.ratio-43 { aspect-ratio: 4/3; }
@@ -431,7 +494,7 @@
   @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
   @keyframes dotsAnim { to { transform: scaleX(1); } }
 
-  /* ═══════════ RESULTADOS ═══════════ */
+  /* ═══ RESULTADOS ═══════════════════════════════════════════════════════ */
   .result-box { background: var(--gris-bg); border: 1.5px solid var(--gris-bd); border-radius: 8px; padding: 14px 16px; min-height: 60px; display: flex; align-items: center; gap: 10px; transition: border-color 0.2s; flex-wrap: wrap; }
   .result-box.found { border-color: var(--verde-bd); background: var(--verde-bg); }
   .result-box.warn  { border-color: var(--ambar-bd); background: var(--ambar-bg); }
@@ -491,7 +554,7 @@
   .empty-tip { font-size: 11px; color: #d0a030; margin-top: 10px; }
 
 
-  /* ═══════════ ARRANQUE ═══════════ */
+  /* ═══ ARRANQUE ═════════════════════════════════════════════════════════ */
   /* La pantalla de carga de Android NO se puede desactivar: en modo standalone
      Chrome la dibuja con el ícono, el nombre y el background_color del manifest
      antes de ejecutar una línea de código. Por eso el fondo acá es el mismo
@@ -546,12 +609,12 @@
     .hdr-ico.dibujando .h-cod { animation-duration: .01ms; }
     .hdr-ico.dibujando .h-caja, .hdr-ico.dibujando .h-caja2 { stroke-dashoffset: 0; }
   }
-  /* ═══════════ FOOTER ═══════════ */
+  /* ═══ FOOTER ═══════════════════════════════════════════════════════════ */
   footer { text-align: center; padding: 16px 16px calc(76px + env(safe-area-inset-bottom)); font-size: 11px; color: #bbb; }
   footer span { color: var(--rojo); font-weight: 700; }
   footer span.footer-version { color: #e2e2e2; font-weight: 400; margin-left: 6px; font-size: 10px; letter-spacing: 0.04em; }
 
-  /* ═══════════ MODALES ═══════════ */
+  /* ═══ MODALES ══════════════════════════════════════════════════════════ */
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(10,10,10,0.55); backdrop-filter: blur(2px); z-index: 1000; align-items: flex-end; justify-content: center; padding: 0; }
   .modal-overlay.active { display: flex; animation: overlayIn .34s ease-out; }
   .modal { position: relative; background: rgba(255,255,255,0.92); backdrop-filter: blur(22px) saturate(180%); border-radius: 20px 20px 0 0; padding: 14px 22px 22px; width: 100%; max-width: 450px; max-height: 88vh; overflow-y: auto; box-shadow: 0 -20px 50px -20px rgba(0,0,0,0.35); animation: sheetUp .46s cubic-bezier(.3,.12,.22,1); will-change: transform, opacity; transform-origin: bottom center; }
@@ -652,7 +715,7 @@
   .toast { position: fixed; bottom: calc(76px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%) translateY(20px); background: #222; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none; transition: all 0.25s; z-index: 3000; max-width: 90%; text-align: center; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-  /* ═══════════ CARTEL DE INSTALACIÓN · iPhone ═══════════ */
+  /* ═══ CARTEL DE INSTALACIÓN · iPhone ═══════════════════════════════════ */
   /* Android ofrece instalar solo. iPhone NO muestra nada, nunca: la app se
      agrega a mano desde el menú Compartir de Safari, y encima el navegador
      interno de WhatsApp —por donde llega casi todo el mundo— ni siquiera
@@ -720,7 +783,7 @@
 </head>
 <body>
 
-<!-- ══════════ ARRANQUE ══════════ -->
+<!-- ═══ ARRANQUE ════════════════════════════════════════════════════════ -->
 <div class="arranque" id="arranque" aria-hidden="true">
   <!-- El dibujo ocupa x 12..52 e y 3..56, o sea que su centro real es (32, 29.5).
        El viewBox encuadra ESE centro y no el del lienzo: con 0 0 64 64 el glifo
@@ -781,7 +844,7 @@
 
 <main>
 
-  <!-- ══════════ VISTA: AGRUPADORA ══════════ -->
+  <!-- ═══ VISTA: AGRUPADORA ═════════════════════════════════════════════ -->
   <section class="view active" id="viewAgrupadora">
     <div class="card">
       <div class="section-title">Código Agrupadora</div>
@@ -815,7 +878,7 @@
     </div>
   </section>
 
-  <!-- ══════════ VISTA: SERIES ══════════ -->
+  <!-- ═══ VISTA: SERIES ═════════════════════════════════════════════════ -->
   <section class="view" id="viewSeries">
 
     <div class="card card-crece">
@@ -842,7 +905,7 @@
     </div>
   </section>
 
-  <!-- ══════════ VISTA: BARRAS ══════════ -->
+  <!-- ═══ VISTA: BARRAS ═════════════════════════════════════════════════ -->
   <section class="view" id="viewBarras">
     <div class="card card-crece">
       <div class="label">Último leído</div>
@@ -872,7 +935,7 @@
 
 <footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v89</span></footer>
 
-<!-- ══════════ MODAL CÁMARA (agrupadora) ══════════ -->
+<!-- ═══ MODAL CÁMARA (agrupadora) ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalAgr">
   <div class="modal modal-cam">
     <div class="cam-stage cam-fullscreen">
@@ -906,7 +969,7 @@
   </div>
 </div>
 
-<!-- ══════════ MODAL CÁMARA (barras) ══════════ -->
+<!-- ═══ MODAL CÁMARA (barras) ═══════════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalBar">
   <div class="modal modal-cam">
     <div class="cam-stage cam-fullscreen">
@@ -931,7 +994,7 @@
   </div>
 </div>
 
-<!-- ══════════ MODAL CÁMARA (series) ══════════ -->
+<!-- ═══ MODAL CÁMARA (series) ═══════════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalSer">
   <div class="modal modal-cam">
     <div class="cam-stage cam-fullscreen">
@@ -956,7 +1019,7 @@
   </div>
 </div>
 
-<!-- ══════════ MODAL SETTINGS ══════════ -->
+<!-- ═══ MODAL SETTINGS ══════════════════════════════════════════════════ -->
 <div class="modal-overlay" id="settingsOverlay">
   <div class="modal">
     <div id="wizardList">
@@ -1006,7 +1069,7 @@
   </div>
 </div>
 
-<!-- ══════════ MODAL HISTORIAL ══════════ -->
+<!-- ═══ MODAL HISTORIAL ═════════════════════════════════════════════════ -->
 <div class="modal-overlay" id="historialOverlay">
   <div class="modal">
     <div class="modal-title" id="tituloHistorial">📊 Historial</div>
@@ -1018,7 +1081,7 @@
 </div>
 
 
-<!-- ══════════ HOJA: NÚMERO LEÍDO POR OCR ══════════ -->
+<!-- ═══ HOJA: NÚMERO LEÍDO POR OCR ══════════════════════════════════════ -->
 <div class="modal-overlay" id="ocrOverlay">
   <div class="modal">
     <div class="modal-title">🔢 Número de la etiqueta</div>
@@ -1060,9 +1123,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"></script>
 
 <script>
-/* ══════════════════════════════════════════════════════════
-   NAVEGACIÓN ENTRE VISTAS
-   ══════════════════════════════════════════════════════════ */
+/* ═══ NAVEGACIÓN ENTRE VISTAS ════════════════════════════════════════════ */
 
 /* Una entrada por herramienta: título, vista, pestaña y qué hace el botón
    central de escaneo. Antes esto eran ternarios sueltos que asumían DOS
@@ -1095,9 +1156,7 @@ function irA(vista) {
 
 /* El botón central de la barra escanea con la herramienta que esté abierta. */
 
-/* ══════════════════════════════════════════════════════════
-   OCR DEL NÚMERO IMPRESO  ·  plan B para etiquetas ilegibles
-   ══════════════════════════════════════════════════════════
+/* ═══ OCR DEL NÚMERO IMPRESO · plan B para etiquetas ilegibles ══════════════
 
    Cuando el QR está tan mal impreso que no lo lee ni el escáner nativo del
    celular, el número sigue estando impreso en texto en la misma etiqueta.
@@ -1219,9 +1278,7 @@ function escanearActual() {
 }
 
 
-/* ══════════════════════════════════════════════════════════
-   LECTOR DE CÓDIGO DE BARRAS LINEAL
-   ══════════════════════════════════════════════════════════
+/* ═══ LECTOR DE CÓDIGO DE BARRAS LINEAL ═════════════════════════════════════
 
    Tercera herramienta. No comparte nada con las otras dos más allá de la
    cámara: no toca Firebase, no configura productos y no agrupa por
@@ -1571,9 +1628,7 @@ function copiarTodoBar(btnId) {
   copiar(barras.map(function (b) { return b.cod; }).join('\n'), btnId);
 }
 
-/* ══════════════════════════════════════════════════════════
-   UTILIDADES COMPARTIDAS
-   ══════════════════════════════════════════════════════════ */
+/* ═══ UTILIDADES COMPARTIDAS ═════════════════════════════════════════════ */
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1660,9 +1715,7 @@ function yaEstaEnAgrupadora(dato) {
   return ta.value.split('\n').some(l => l.trim() === dato);
 }
 
-/* ══════════════════════════════════════════════════════════
-   MÓDULO 1 · EXTRACTOR AGRUPADORA
-   ══════════════════════════════════════════════════════════ */
+/* ═══ MÓDULO 1 · EXTRACTOR AGRUPADORA ════════════════════════════════════ */
 
 let valoresAgr = [];
 let streamAgr = null, scanIntervalAgr = null, camAgrAbierta = false;
@@ -1772,9 +1825,7 @@ function actualizarContadorAgr() {
   c.className = valoresAgr.length > 0 ? 'cam-count visible' : 'cam-count';
 }
 
-/* ══════════════════════════════════════════════════════════
-   CÁMARA · siempre a la máxima resolución del equipo
-   ══════════════════════════════════════════════════════════ */
+/* ═══ CÁMARA · siempre a la máxima resolución del equipo ═════════════════ */
 
 /* Los controles de resolución, intensidad de linterna y brillo de imagen se
    sacaron a propósito. torchLevel / fillLightLevel / brightness no están en la
@@ -1786,9 +1837,7 @@ function actualizarContadorAgr() {
 
 const camCtrl = { Agr: null, Ser: null, Bar: null };
 
-/* ══════════════════════════════════════════════════════════
-   ELECCIÓN DE LENTE
-   ══════════════════════════════════════════════════════════ */
+/* ═══ ELECCIÓN DE LENTE ══════════════════════════════════════════════════ */
 
 /* Los teléfonos con varias lentes traseras son el problema. Pidiendo
    `facingMode: environment` el sistema elige por su cuenta, y en iPhone suele
@@ -2909,9 +2958,7 @@ document.getElementById('inputAgr').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); extraerAgr(); }
 });
 
-/* ══════════════════════════════════════════════════════════
-   MÓDULO 2 · LECTOR DE SERIES
-   ══════════════════════════════════════════════════════════ */
+/* ═══ MÓDULO 2 · LECTOR DE SERIES ════════════════════════════════════════ */
 
 const LABORATORIOS = ['ABBVIE','ASTRAZENECA','AMGEN','ROCHE','BIOSIDUS','SANOFI AVENTIS'];
 const SIN_LAB = 'Sin clasificar';
@@ -3530,9 +3577,7 @@ function copiarGrupoSer(idSafe, lab) {
   copiar(items.map(i => i.serie).join(' O '), 'cpg' + idSafe);
 }
 
-/* ══════════════════════════════════════════════════════════
-   WIZARD DE CONFIGURACIÓN
-   ══════════════════════════════════════════════════════════ */
+/* ═══ WIZARD DE CONFIGURACIÓN ════════════════════════════════════════════ */
 
 function abrirSettings() {
   document.getElementById('settingsOverlay').classList.add('active');
@@ -3780,9 +3825,7 @@ async function eliminarConfig(gtin) {
   } catch(e) { mostrarToast('Error al eliminar: ' + e.message); }
 }
 
-/* ══════════════════════════════════════════════════════════
-   HISTORIAL
-   ══════════════════════════════════════════════════════════ */
+/* ═══ HISTORIAL ══════════════════════════════════════════════════════════ */
 
 let historialCache = [];
 
@@ -3928,9 +3971,7 @@ function copiarHistGrupo(idSafe, lab) {
   copiar(arr.map(i => i.serie).join(' O '), idSafe);
 }
 
-/* ══════════════════════════════════════════════════════════
-   SERVICE WORKER + AVISO DE VERSIÓN NUEVA
-   ══════════════════════════════════════════════════════════
+/* ═══ SERVICE WORKER + AVISO DE VERSIÓN NUEVA ═══════════════════════════════
 
    El aviso NO depende del estado del service worker, y esto es importante.
 
@@ -4025,9 +4066,7 @@ function aplicarActualizacion() {
   timeoutRecarga = setTimeout(finalizarActualizacion, 450);
 }
 
-/* ══════════════════════════════════════════════════════════
-   LOGO DEL HEADER
-   ══════════════════════════════════════════════════════════ */
+/* ═══ LOGO DEL HEADER ════════════════════════════════════════════════════ */
 
 /* Redibuja el glifo. Quitar y volver a poner la clase en el mismo cuadro no
    alcanza: el navegador agrupa los dos cambios y la animación no se reinicia,
@@ -4063,9 +4102,7 @@ function animarLogo() {
   ico.classList.add('dibujando');
 }
 
-/* ══════════════════════════════════════════════════════════
-   CARTEL DE INSTALACIÓN · iPhone
-   ══════════════════════════════════════════════════════════ */
+/* ═══ CARTEL DE INSTALACIÓN · iPhone ═════════════════════════════════════ */
 
 /* Android ofrece instalar la app solo. iPhone NO muestra nada, nunca: se
    agrega a mano desde el menú Compartir de Safari. Y el navegador interno de
@@ -4146,9 +4183,7 @@ function cerrarTipIOS() {
   try { localStorage.setItem(CLAVE_TIP_IOS, '1'); } catch(e) {}
 }
 
-/* ══════════════════════════════════════════════════════════
-   ARRANQUE
-   ══════════════════════════════════════════════════════════ */
+/* ═══ ARRANQUE ═══════════════════════════════════════════════════════════ */
 
 (function init() {
   /* Se saca del DOM, no solo se oculta: es un elemento fijo a pantalla completa
@@ -4181,9 +4216,7 @@ function cerrarTipIOS() {
 })();
 
 
-/* ══════════════════════════════════════════════════════════
-   HOJAS · la solapa gris es el control de cierre
-   ══════════════════════════════════════════════════════════ */
+/* ═══ HOJAS · la solapa gris es el control de cierre ═════════════════════ */
 
 /* Cada hoja cierra por su propia función para no saltearse limpiezas:
    cerrarSettings() además resetea el wizard. */
