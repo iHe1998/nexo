@@ -617,8 +617,31 @@
   /* ═══ MODALES ══════════════════════════════════════════════════════════ */
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(10,10,10,0.55); backdrop-filter: blur(2px); z-index: 1000; align-items: flex-end; justify-content: center; padding: 0; }
   .modal-overlay.active { display: flex; animation: overlayIn .34s ease-out; }
-  .modal { position: relative; background: rgba(255,255,255,0.92); backdrop-filter: blur(22px) saturate(180%); border-radius: 20px 20px 0 0; padding: 14px 22px 22px; width: 100%; max-width: 450px; max-height: 88vh; overflow-y: auto; box-shadow: 0 -20px 50px -20px rgba(0,0,0,0.35); animation: sheetUp .46s cubic-bezier(.3,.12,.22,1); will-change: transform, opacity; transform-origin: bottom center; }
-  .sheet-grab { position: sticky; top: 0; z-index: 6; display: block; width: calc(100% + 44px); margin: -14px -22px 8px; padding: 14px 22px 10px; border: none; background: linear-gradient(rgba(255,255,255,0.96) 58%, rgba(255,255,255,0)); cursor: grab; touch-action: none; -webkit-tap-highlight-color: transparent; }
+  .modal { position: relative; background: rgba(255,255,255,0.92); backdrop-filter: blur(22px) saturate(180%); border-radius: 20px 20px 0 0; padding: 0 22px 22px; width: 100%; max-width: 450px; max-height: 88vh; overflow-y: auto; box-shadow: 0 -20px 50px -20px rgba(0,0,0,0.35); animation: sheetUp .46s cubic-bezier(.3,.12,.22,1); will-change: transform, opacity; transform-origin: bottom center; }
+  /* ── POR QUÉ EL PADDING DE ARRIBA VIVE ACÁ Y NO EN .modal ──────────────────
+     Síntoma: "se ve en el borde lo que se desliza". Scrolleando la lista de
+     productos, el contenido aparecía ARRIBA de la pastilla, sin nada que lo
+     tapara, y después se metía abajo. Parecía un glitch y lo era.
+
+     La causa: una barra `position: sticky; top: 0` se ancla al borde del
+     PADDING del contenedor que scrollea, no al borde del elemento. Como
+     .modal tenía `padding-top: 14px`, la solapa quedaba clavada 14px más
+     abajo del filo de la hoja — y esos 14px son parte del área que scrollea,
+     así que el contenido pasaba por ahí a la vista. Medido: filo de la hoja
+     en y=191, solapa en y=204.
+
+     El arreglo es mover esos 14px de .modal a la solapa: el aspecto en reposo
+     queda idéntico (la pastilla sigue a 14px del borde) pero ahora la solapa
+     se ancla al filo y tapa todo lo que pasa por debajo. Verificado: 0px de
+     hueco.
+
+     **Si algún día se le devuelve padding-top a .modal, vuelve el bug.**
+
+     El tramo sólido del degradado llega al 62% para que cubra la pastilla
+     entera (termina a 18px de 34), y recién después funde. Con el 58% de
+     antes la pastilla quedaba flotando sobre el texto que pasaba. */
+  .sheet-grab { position: sticky; top: 0; z-index: 6; display: block; width: calc(100% + 44px); margin: 0 -22px 8px; padding: 14px 22px 16px; border: none; background: linear-gradient(rgba(255,255,255,0.96) 62%, rgba(255,255,255,0)); cursor: grab; touch-action: none; -webkit-tap-highlight-color: transparent; }
+
   .sheet-grab i { display: block; width: 40px; height: 4px; border-radius: 3px; background: rgba(28,28,30,0.18); margin: 0 auto; transition: background .18s ease, width .18s ease; }
   .sheet-grab:hover i { width: 54px; background: rgba(28,28,30,0.32); }
   .sheet-grab:active, .sheet-grab.dragging { cursor: grabbing; }
@@ -933,7 +956,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v89</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v90</span></footer>
 
 <!-- ═══ MODAL CÁMARA (agrupadora) ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalAgr">

@@ -1,4 +1,4 @@
-const CACHE = 'agrupadora-v89';
+const CACHE = 'agrupadora-v90';
 
 // Propios: si alguno falla, el install falla (son imprescindibles).
 const ASSETS_LOCALES = [
