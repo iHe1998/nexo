@@ -956,7 +956,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v91</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v92</span></footer>
 
 <!-- ═══ MODAL CÁMARA (agrupadora) ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1402,9 +1402,11 @@ function lectorBarras() {
   return lectorBar;
 }
 
+/* Sirve para los dos orígenes: ZXing manda un número de su enum y el motor
+   del navegador manda un texto tipo 'ean_13'. */
 function nombreFormato(f) {
-  try { return String(ZXing.BarcodeFormat[f] || f).replace(/_/g, '-'); }
-  catch(e) { return ''; }
+  try { return String(ZXing.BarcodeFormat[f] || f).replace(/_/g, '-').toUpperCase(); }
+  catch(e) { return String(f || '').replace(/_/g, '-').toUpperCase(); }
 }
 
 /* ── EL LECTOR DE BARRAS NO PIDE GIRAR EL TELÉFONO (y no hay que volver) ─────
@@ -1490,7 +1492,7 @@ function scanBar() {
   const ctx    = canvas.getContext('2d');
   const marco  = document.querySelector('#camModalBar .visor-banda');
 
-  function tick() {
+  async function tick() {
     if (!scanLoopBar) return;
     const reader = lectorBarras();
     /* Se lee exactamente el rectángulo que se ve. Se mide en cada cuadro y no
@@ -1500,6 +1502,13 @@ function scanBar() {
     const t0 = performance.now();
     if (reader && video.readyState === 4 &&
         frameBanda(video, marco, canvas, ctx, ANCHO_BANDA_MAX, ALTO_BANDA_MAX)) {
+      const nav = await leerConNavegador('Bar', canvas);
+      if (nav && nav.texto) {
+        onDecodeBar(nav.texto, nav.formato);
+        registrarCostoCuadro('Bar', performance.now() - t0, 200);
+        setTimeout(tick, 200);
+        return;
+      }
       const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
       let result = null;
       try {
@@ -2008,11 +2017,140 @@ const ESCALONES = [720, 1080, 1440, 2160];
 
    El techo queda en localStorage por herramienta: un equipo puede bancar la
    agrupadora y no las series, que recortan distinto. */
+/* ── EL LECTOR DEL NAVEGADOR, CUANDO ESTÁ ───────────────────────────────────
+
+   `BarcodeDetector` es el lector de códigos del propio navegador. En Android
+   Chrome está construido sobre Google Play Services, o sea **el mismo motor de
+   la familia de ML Kit**, en código nativo y fuera del hilo principal.
+
+   Por qué importa acá: el cuello de botella en un teléfono de gama baja no es
+   la cámara, es que decodificar en JavaScript ocupa el hilo que dibuja la
+   vista previa. Sacando jsQR y ZXing del camino cuando el navegador puede
+   hacerlo él, ese hilo se libera y la previa vuelve a moverse.
+
+   **Es un agregado, no un reemplazo, y no puede serlo:**
+
+   | | |
+   |---|---|
+   | Android Chrome | anda, motor de Google |
+   | iPhone | **no existe**, ni en Safari ni en el Chrome de iOS |
+   | Firefox | no existe |
+
+   Así que jsQR y ZXing se quedan enteros como respaldo, y además se usan
+   igual cuando el navegador no logra leer el cuadro.
+
+   **La detección de soporte tiene que ser de verdad.** Que exista
+   `BarcodeDetector` no alcanza: hay plataformas donde el constructor está pero
+   no soporta ningún formato útil. Por eso se pregunta `getSupportedFormats()`
+   y se cruza con lo que cada herramienta necesita.
+
+   **Y en series no se le cree a ciegas.** Está reportado que algunos lectores
+   pierden el separador GS1 y devuelven todo pegado. Si lo que trae el
+   navegador no se puede parsear, se le da el mismo cuadro a ZXing, que puede
+   traer el separador que el otro perdió. Nunca se pierde una lectura que antes
+   entraba. */
+const FORMATOS_NAV = {
+  Agr: ['qr_code'],
+  Ser: ['data_matrix', 'qr_code', 'code_128'],
+  Bar: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'codabar']
+};
+const detectorNav = {};
+const fallosNav = {};
+let formatosNav = null;
+
+async function prepararDetector(pref) {
+  detectorNav[pref] = null;
+  fallosNav[pref] = 0;
+  if (typeof BarcodeDetector === 'undefined') return;
+  try {
+    if (!formatosNav) formatosNav = await BarcodeDetector.getSupportedFormats();
+    const quiero = (FORMATOS_NAV[pref] || []).filter(f => formatosNav.indexOf(f) >= 0);
+    if (!quiero.length) return;
+    detectorNav[pref] = new BarcodeDetector({ formats: quiero });
+  } catch(e) { detectorNav[pref] = null; }
+}
+
+/* Devuelve { texto, formato } o null. Si falla tres veces seguidas se apaga:
+   un detector que tira excepción en cada cuadro cuesta más de lo que ahorra. */
+async function leerConNavegador(pref, canvas) {
+  const d = detectorNav[pref];
+  if (!d) return null;
+  try {
+    const r = await d.detect(canvas);
+    fallosNav[pref] = 0;
+    if (!r || !r.length || !r[0].rawValue) return null;
+    return { texto: r[0].rawValue, formato: r[0].format };
+  } catch(e) {
+    if (++fallosNav[pref] >= 3) detectorNav[pref] = null;
+    return null;
+  }
+}
+
+/* ── LOS FPS QUE DECLARA LA CÁMARA NO SON LOS QUE ENTREGA ───────────────────
+
+   Síntoma: *"cambié de cámara, mejora la resolución pero no va a 30fps aunque
+   diga que sí, va trabado como a 10"*. Y tenía razón:
+   **`getSettings().frameRate` no mide nada** — devuelve lo que se PIDIÓ, no lo
+   que el sensor entrega. El cartel estaba mostrando la petición y haciéndola
+   pasar por un resultado.
+
+   `requestVideoFrameCallback` sí mide: dispara una vez por cada cuadro que el
+   navegador realmente presenta. Contarlos durante un segundo da el número de
+   verdad.
+
+   Esto además tapa un agujero del ajuste automático de la v91. Ese medía
+   cuánto tarda NUESTRO trabajo, así que detecta "el JavaScript no da abasto"
+   pero es ciego a "la cámara entrega 10 cuadros por segundo a esta
+   resolución" — que es un problema distinto con el mismo remedio: bajar un
+   peldaño. Ahora se miran las dos cosas.
+
+   Se exige que esté bajo durante **tres segundos seguidos** antes de tocar
+   nada: al abrir la cámara los primeros cuadros siempre vienen lentos. */
+const fpsReal = {};
+const midiendoFps = {};
+const segundosFlojos = {};
+const FPS_PEDIDOS = 30;
+
+function medirFpsReal(pref) {
+  const v = document.getElementById('video' + pref);
+  if (!v || !v.requestVideoFrameCallback || midiendoFps[pref]) return;
+  midiendoFps[pref] = true;
+  segundosFlojos[pref] = 0;
+  let n = 0, desde = performance.now();
+  const paso = () => {
+    if (!v.srcObject) { midiendoFps[pref] = false; fpsReal[pref] = null; return; }
+    n++;
+    const seg = (performance.now() - desde) / 1000;
+    if (seg >= 1) {
+      fpsReal[pref] = n / seg;
+      n = 0; desde = performance.now();
+      revisarFpsReal(pref);
+    }
+    v.requestVideoFrameCallback(paso);
+  };
+  v.requestVideoFrameCallback(paso);
+}
+
+function revisarFpsReal(pref) {
+  if (resGuardada(pref) !== 0) return;          // elección manual: no se toca
+  const f = fpsReal[pref];
+  /* Dos tercios de lo que se pidió. No es un número al azar: el piso de 30 fps
+     existe para que la exposición sea corta y la mano no salga movida; por
+     debajo de 20 esa protección ya no está y es justo cuando el código deja de
+     entrar. */
+  if (!f || f >= FPS_PEDIDOS * 2 / 3) { segundosFlojos[pref] = 0; return; }
+  if (++segundosFlojos[pref] < 3) return;
+  segundosFlojos[pref] = 0;
+  bajarUnPeldano(pref);
+}
+
 const CLAVE_TECHO = 'nexo.techo.';
+
 const PELDANOS = [480, 720, 1080, 1440, 2160];
 const MUESTRAS_AJUSTE = 8;
 const FRACCION_SANA = 0.7;
 const costoCuadro = {};
+const ocupadoCuadro = {};
 
 function techoGuardado(pref) {
   try { const v = +localStorage.getItem(CLAVE_TECHO + pref); return v > 0 ? v : 2160; }
@@ -2036,10 +2174,17 @@ function registrarCostoCuadro(pref, ms, intervalo) {
   m.length = 0;                                  // se vuelve a medir después
   if (mediana <= intervalo * FRACCION_SANA) return;
 
+  bajarUnPeldano(pref);
+}
+
+/* Un peldaño abajo y a reabrir. Lo llaman los dos detectores de problema: el
+   que mide nuestro trabajo y el que mide los cuadros que entrega la cámara. */
+function bajarUnPeldano(pref) {
   const i = PELDANOS.indexOf(altoAuto(pref));
-  if (i <= 0) return;                            // ya está en el peldaño más bajo
+  if (i <= 0) return false;                      // ya está en el peldaño más bajo
   try { localStorage.setItem(CLAVE_TECHO + pref, String(PELDANOS[i - 1])); } catch(e) {}
   reabrirCam(pref, false);
+  return true;
 }
 
 function altoSegunPantalla() {
@@ -2484,6 +2629,8 @@ async function iniciarCtrlCam(pref, stream) {
     btnZoom.classList.remove('on');
   }
 
+  await prepararDetector(pref);
+  medirFpsReal(pref);
   pintarInfoCam(pref, settings);
   return camCtrl[pref];
 }
@@ -2491,7 +2638,16 @@ async function iniciarCtrlCam(pref, stream) {
 function pintarInfoCam(pref, settings) {
   const s = settings || (camCtrl[pref] && camCtrl[pref].track.getSettings ? camCtrl[pref].track.getSettings() : {});
   const mp  = (s.width && s.height) ? (s.width * s.height / 1e6).toFixed(1) + ' MP' : '';
-  const fps = s.frameRate ? Math.round(s.frameRate) + ' fps' : '';
+  /* Se muestra lo que la cámara ENTREGA, no lo que declara. Cuando los dos
+     números no coinciden se ven los dos (`10/30 fps`): esa diferencia es
+     justamente el dato que hacía falta y que antes el cartel escondía. */
+  const fpsDecl = s.frameRate ? Math.round(s.frameRate) : null;
+  const fpsMed  = fpsReal[pref] ? Math.round(fpsReal[pref]) : null;
+  let fps = '';
+  if (fpsMed != null && fpsDecl != null && Math.abs(fpsMed - fpsDecl) > fpsDecl * 0.15)
+    fps = fpsMed + '/' + fpsDecl + ' fps';
+  else if (fpsMed != null) fps = fpsMed + ' fps';
+  else if (fpsDecl != null) fps = fpsDecl + ' fps';
   const res = (s.width && s.height) ? s.width + '×' + s.height : '';
   const lente = nombreLente(pref);
 
@@ -2512,7 +2668,8 @@ function pintarInfoCam(pref, settings) {
   /* Si la app bajó la resolución sola, que se vea. Un ajuste automático que no
      se puede auditar es indistinguible de un bug. */
   const ajustada = resGuardada(pref) === 0 && techoGuardado(pref) < altoSegunPantalla() ? 'ajustada' : '';
-  document.getElementById('camInfo' + pref).textContent = [res, mp, fps, amp, lente, ajustada].filter(Boolean).join(' · ') || '—';
+  const nativo = detectorNav[pref] ? 'nativo' : '';
+  document.getElementById('camInfo' + pref).textContent = [res, mp, fps, amp, lente, nativo, ajustada].filter(Boolean).join(' · ') || '—';
 }
 
 
@@ -2983,7 +3140,7 @@ function scanAgr() {
   inicioScanAgr = Date.now();
   mostrarGloboOCR(false);
 
-  scanIntervalAgr = setInterval(() => {
+  scanIntervalAgr = setInterval(async () => {
     const seg = (Date.now() - diagAgr.desde) / 1000;
     if (seg >= 1) {
       const porSeg = (diagAgr.cuadros / seg).toFixed(1);
@@ -2992,18 +3149,31 @@ function scanAgr() {
       diagAgr = { cuadros: 0, saltados: 0, desde: Date.now() };
     }
 
+    /* El detector del navegador es asíncrono, así que un cuadro puede seguir
+       procesándose cuando entra el siguiente. Sin este freno se encimarían. */
+    if (ocupadoCuadro.Agr) return;
     if (video.readyState !== video.HAVE_ENOUGH_DATA) { diagAgr.saltados++; return; }
     const t0 = performance.now();
     if (!frameCompleto(video, canvas, ctx, MAX_LADO_AGR)) { diagAgr.saltados++; return; }
     diagAgr.cuadros++;
+    ocupadoCuadro.Agr = true;
 
-    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const dato = leerQRAgr(canvas, ctx, img);
+    let dato = null;
+    try {
+      /* Primero el motor del navegador: es nativo y no ocupa este hilo. */
+      const nav = await leerConNavegador('Agr', canvas);
+      dato = nav && nav.texto;
 
-    /* Si no entró, ¿al menos VEMOS un QR? Es la diferencia entre "acercate" y
-       "esta etiqueta está para el OCR", y hasta ahora las dos se veían igual.
-       Corre solo cuando falló: si entró, el tilde ya dice todo. */
-    if (!dato) marcarViendo('Agr', hayPatronQR(img));
+      /* Si no pudo, el camino de siempre — que además estira el contraste y
+         rescata las etiquetas desteñidas, cosa que el nativo no hace. */
+      if (!dato) {
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        dato = leerQRAgr(canvas, ctx, img);
+        /* Si no entró, ¿al menos VEMOS un QR? Es la diferencia entre
+           "acercate" y "esta etiqueta está para el OCR". */
+        if (!dato) marcarViendo('Agr', hayPatronQR(img));
+      }
+    } finally { ocupadoCuadro.Agr = false; }
     registrarCostoCuadro('Agr', performance.now() - t0, 200);
 
     /* El robot ofrece ayuda recién cuando el QR lleva un rato sin entrar. */
@@ -3388,10 +3558,20 @@ function scanSer() {
   const canvas = document.getElementById('canvasSer');
   const ctx = canvas.getContext('2d');
 
-  function tick() {
+  async function tick() {
     if (!scanLoopSer) return;
     const t0 = performance.now();
     if (video.readyState === 4 && frameVisor(video, canvas, ctx, 0.85, 1400)) {
+      /* El motor del navegador primero, pero sin creerle a ciegas: si lo que
+         trae no se puede parsear —puede haber perdido el separador GS1— se le
+         da el mismo cuadro a ZXing, que quizás sí lo traiga. */
+      const nav = await leerConNavegador('Ser', canvas);
+      if (nav && nav.texto && extraerSerieParaRaw(nav.texto)) {
+        onDecodeSer(nav.texto);
+        registrarCostoCuadro('Ser', performance.now() - t0, 150);
+        setTimeout(tick, 150);
+        return;
+      }
       const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
       let result = null;
       try {
