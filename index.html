@@ -956,7 +956,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v90</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v91</span></footer>
 
 <!-- ═══ MODAL CÁMARA (agrupadora) ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1497,6 +1497,7 @@ function scanBar() {
        una sola vez al abrir: el teléfono puede girar con la cámara abierta y
        ahí el visor cambia de tamaño. Son dos getBoundingClientRect cinco veces
        por segundo, no es un bucle de arrastre. */
+    const t0 = performance.now();
     if (reader && video.readyState === 4 &&
         frameBanda(video, marco, canvas, ctx, ANCHO_BANDA_MAX, ALTO_BANDA_MAX)) {
       const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
@@ -1515,6 +1516,7 @@ function scanBar() {
       try { reader.reset(); } catch(e) {}
       if (result) onDecodeBar(result.getText(), result.getBarcodeFormat());
       else marcarViendo('Bar', hayCodigoDenso(ctx.getImageData(0, 0, canvas.width, canvas.height)));
+      registrarCostoCuadro('Bar', performance.now() - t0, 200);
     }
     setTimeout(tick, 200);
   }
@@ -1956,8 +1958,8 @@ const RES_OPCIONES = [MAXIMO, 0, 480, 1080, 1440, 2160];   // 0 = automática, s
 
    El default sigue siendo MÁXIMO. */
 function resGuardada(pref) {
-  try { const v = localStorage.getItem(CLAVE_RES + pref); return v == null ? MAXIMO : (+v || 0); }
-  catch(e) { return MAXIMO; }
+  try { const v = localStorage.getItem(CLAVE_RES + pref); return v == null ? 0 : (+v || 0); }
+  catch(e) { return 0; }
 }
 function guardarRes(pref, v) { try { localStorage.setItem(CLAVE_RES + pref, String(v)); } catch(e) {} }
 
@@ -1965,6 +1967,80 @@ function guardarRes(pref, v) { try { localStorage.setItem(CLAVE_RES + pref, Stri
    ofrecen modos fijos (720p, 1080p, 1440p, 4K); pedir un número intermedio
    como "1632" no consigue nada mejor y hace impredecible cuál te dan. */
 const ESCALONES = [720, 1080, 1440, 2160];
+
+/* ── LA RESOLUCIÓN SE ADAPTA AL EQUIPO, NO SOLO A LA PANTALLA ────────────────
+
+   Síntoma que lo motivó, en un Samsung A17: "la cámara va a muy bajos FPS y no
+   llega a leer los QR, pero el escáner nativo del teléfono es rapidísimo".
+
+   Pedir la resolución por el tamaño de la pantalla —que es lo que hacía AUTO—
+   contesta "cuántos píxeles hacen falta para que se vea bien", pero no
+   contesta **si el equipo puede procesarlos**. Son dos preguntas distintas y
+   en un teléfono de gama baja la segunda es la que manda.
+
+   Y el cuello no es la cámara: es que por cada intento la app baja el cuadro a
+   memoria y lo procesa en el hilo principal —dibujar, leer los píxeles,
+   estirar contraste, jsQR, buscar esquinas—. **Mientras eso corre, la vista
+   previa no se dibuja.** Por eso se ve como si la cámara fuera lenta cuando en
+   realidad es el JavaScript tapando el hilo. El escáner nativo no es
+   comparación: usa el stream chico de vista previa y el motor de Google por
+   hardware, sin pasar nunca por un canvas.
+
+   Entonces ahora AUTO mide y corrige: si el trabajo de un cuadro no entra
+   cómodo en el intervalo del bucle, baja un peldaño y lo recuerda para ese
+   equipo. La próxima vez abre directo en la resolución que sí le va.
+
+   **La medición es la mitad importante de esto.** El umbral no es un número
+   elegido a ojo —ya nos pasó con los "50 fps" y salió caro—: es el intervalo
+   del PROPIO bucle. Si el trabajo ocupa casi toda la ventana entre cuadros, al
+   navegador no le queda tiempo para dibujar el video, que es exactamente el
+   síntoma. Se compara contra el 70% del intervalo para dejarle ese aire.
+
+   Tres detalles que lo hacen seguro:
+
+   - Se toma la **mediana de 8 cuadros**, no un promedio ni una muestra. Un
+     tirón de GC o un cuadro feo no alcanzan para disparar el cambio.
+   - **Solo corre en AUTO.** Si la persona eligió una resolución con el botón,
+     eso es una orden y no se toca. El botón sigue teniendo `máx` para quien
+     la quiera.
+   - **Solo baja, nunca sube**, y se frena en el peldaño más chico. Cada bajada
+     exige 8 muestras nuevas, así que no puede desbarrancarse de golpe.
+
+   El techo queda en localStorage por herramienta: un equipo puede bancar la
+   agrupadora y no las series, que recortan distinto. */
+const CLAVE_TECHO = 'nexo.techo.';
+const PELDANOS = [480, 720, 1080, 1440, 2160];
+const MUESTRAS_AJUSTE = 8;
+const FRACCION_SANA = 0.7;
+const costoCuadro = {};
+
+function techoGuardado(pref) {
+  try { const v = +localStorage.getItem(CLAVE_TECHO + pref); return v > 0 ? v : 2160; }
+  catch(e) { return 2160; }
+}
+
+/* Lo que pide AUTO: lo que necesita la pantalla, pero sin pasarse de lo que el
+   equipo demostró que aguanta. */
+function altoAuto(pref) {
+  return Math.min(altoSegunPantalla(), techoGuardado(pref));
+}
+
+function registrarCostoCuadro(pref, ms, intervalo) {
+  if (resGuardada(pref) !== 0) return;          // elección manual: no se toca
+  const m = costoCuadro[pref] || (costoCuadro[pref] = []);
+  m.push(ms);
+  if (m.length < MUESTRAS_AJUSTE) return;
+
+  const orden = m.slice().sort((a, b) => a - b);
+  const mediana = orden[orden.length >> 1];
+  m.length = 0;                                  // se vuelve a medir después
+  if (mediana <= intervalo * FRACCION_SANA) return;
+
+  const i = PELDANOS.indexOf(altoAuto(pref));
+  if (i <= 0) return;                            // ya está en el peldaño más bajo
+  try { localStorage.setItem(CLAVE_TECHO + pref, String(PELDANOS[i - 1])); } catch(e) {}
+  reabrirCam(pref, false);
+}
 
 function altoSegunPantalla() {
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
@@ -1991,7 +2067,7 @@ function ladosPedidos(pref) {
   /* En máximo se pide alto de entrada; después subirAMaximo() afina con lo que
      la cámara declare de verdad, que recién se puede leer con el stream ya
      abierto. */
-  const alto = modo === MAXIMO ? 2160 : (modo || altoSegunPantalla());
+  const alto = modo === MAXIMO ? 2160 : (modo || altoAuto(pref));
   return { width: { ideal: anchoPara(alto) }, height: { ideal: alto } };
 }
 
@@ -2433,7 +2509,10 @@ function pintarInfoCam(pref, settings) {
   }
   const btn = document.getElementById('btnRes' + pref);
   if (btn) btn.textContent = etiquetaRes(pref);
-  document.getElementById('camInfo' + pref).textContent = [res, mp, fps, amp, lente].filter(Boolean).join(' · ') || '—';
+  /* Si la app bajó la resolución sola, que se vea. Un ajuste automático que no
+     se puede auditar es indistinguible de un bug. */
+  const ajustada = resGuardada(pref) === 0 && techoGuardado(pref) < altoSegunPantalla() ? 'ajustada' : '';
+  document.getElementById('camInfo' + pref).textContent = [res, mp, fps, amp, lente, ajustada].filter(Boolean).join(' · ') || '—';
 }
 
 
@@ -2914,6 +2993,7 @@ function scanAgr() {
     }
 
     if (video.readyState !== video.HAVE_ENOUGH_DATA) { diagAgr.saltados++; return; }
+    const t0 = performance.now();
     if (!frameCompleto(video, canvas, ctx, MAX_LADO_AGR)) { diagAgr.saltados++; return; }
     diagAgr.cuadros++;
 
@@ -2924,6 +3004,7 @@ function scanAgr() {
        "esta etiqueta está para el OCR", y hasta ahora las dos se veían igual.
        Corre solo cuando falló: si entró, el tilde ya dice todo. */
     if (!dato) marcarViendo('Agr', hayPatronQR(img));
+    registrarCostoCuadro('Agr', performance.now() - t0, 200);
 
     /* El robot ofrece ayuda recién cuando el QR lleva un rato sin entrar. */
     if (!dato && !globoMostrado && Date.now() - inicioScanAgr > MS_GLOBO_OCR) {
@@ -3309,6 +3390,7 @@ function scanSer() {
 
   function tick() {
     if (!scanLoopSer) return;
+    const t0 = performance.now();
     if (video.readyState === 4 && frameVisor(video, canvas, ctx, 0.85, 1400)) {
       const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
       let result = null;
@@ -3324,6 +3406,7 @@ function scanSer() {
          "lo veo pero no lo puedo leer". Solo cuando falló: si entró, el tilde
          ya dice todo, y así no se paga la lectura del canvas al pedo. */
       else marcarViendo('Ser', hayCodigoDenso(ctx.getImageData(0, 0, canvas.width, canvas.height)));
+      registrarCostoCuadro('Ser', performance.now() - t0, 150);
     }
     /* 150 y no 250: el ciclo es "decodificar + esperar", así que la espera es
        lo que fija cuántos intentos por segundo hay. Bajarla es lo único que
