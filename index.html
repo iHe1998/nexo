@@ -206,7 +206,10 @@
   .visor-banda {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
     width: 96%; aspect-ratio: 8/3; max-height: 40%;
-    box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
+    /* 2000 y no 9999: con 9999 el rectángulo de la sombra mide 20000x20000,
+       o sea cien veces más superficie que rasterizar para el mismo resultado
+       visual. 2000 ya tapa cualquier pantalla con margen de sobra. */
+    box-shadow: 0 0 0 2000px rgba(0,0,0,0.45);
     border-radius: 10px; pointer-events: none;
   }
   .bar-row {
@@ -320,7 +323,7 @@
   .cam-stage.ratio-43 { aspect-ratio: 4/3; }
   .cam-stage video { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-  .visor-frame { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); aspect-ratio: 1; box-shadow: 0 0 0 9999px rgba(0,0,0,0.45); border-radius: 10px; pointer-events: none; }
+  .visor-frame { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); aspect-ratio: 1; box-shadow: 0 0 0 2000px rgba(0,0,0,0.45); border-radius: 10px; pointer-events: none; }
   .visor-frame.w62 { width: 62%; }
   .visor-frame.w58 { width: 58%; }
   .visor-frame i, .visor-banda i { position: absolute; width: 26px; height: 26px; border: 3px solid var(--rojo); animation: cornerPulse 2.2s ease-in-out infinite; will-change: transform, opacity; }
@@ -331,18 +334,29 @@
   .scan-track { position: absolute; top: 4%; bottom: 8%; left: 0; right: 0; pointer-events: none; animation: scanSweep 2.4s ease-in-out infinite; will-change: transform, opacity; }
   .scan-line { position: absolute; top: 0; left: 6%; right: 6%; height: 2px; background: linear-gradient(90deg, transparent, rgba(215,25,32,0.95), transparent); box-shadow: 0 0 10px 2px rgba(215,25,32,0.55); }
 
-  .cam-status { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); background: rgba(20,20,20,0.55); backdrop-filter: blur(14px) saturate(160%); border: 1px solid rgba(255,255,255,0.16); color: #fff; font-size: 12px; font-weight: 500; padding: 8px 16px; border-radius: 20px; white-space: nowrap; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; z-index: 6; transition: background 0.2s, border-color 0.2s; }
+  /* ── SIN backdrop-filter ADENTRO DE LA CÁMARA ─────────────────────────────
+     El estado, el contador, el cartel de diagnóstico y los cinco botones del
+     dock hacían cada uno un desenfoque del fondo — hasta OCHO capas— sobre un
+     VIDEO EN VIVO, o sea recompuestas en cada cuadro de video. En una GPU de
+     gama baja eso se lleva puesta la fluidez de todo, y explica por qué en el
+     A17 hasta las animaciones iban lentas.
+
+     Se compensa con un fondo más opaco. Sobre video oscuro la diferencia no
+     se nota: lo que aportaba el desenfoque era legibilidad, y eso lo da
+     igual la opacidad. En las hojas (.modal) se mantiene, que ahí el fondo
+     es estático y no se paga por cuadro. */
+  .cam-status { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); background: rgba(20,20,20,0.74); border: 1px solid rgba(255,255,255,0.16); color: #fff; font-size: 12px; font-weight: 500; padding: 8px 16px; border-radius: 20px; white-space: nowrap; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; z-index: 6; transition: background 0.2s, border-color 0.2s; }
   .cam-status.ok   { background: rgba(46,125,50,0.8); border-color: rgba(255,255,255,0.22); }
   .cam-status.warn { background: rgba(160,106,0,0.85); border-color: rgba(255,255,255,0.22); }
   .cam-status.err  { background: rgba(215,25,32,0.85); border-color: rgba(255,255,255,0.22); }
   .cam-status.dup  { background: rgba(63,81,181,0.88); border-color: rgba(255,255,255,0.28); font-weight: 700; }
   .cam-status:not(.ok):not(.warn):not(.err):not(.dup)::after { content: "..."; display: inline-block; width: 1.1em; overflow: hidden; vertical-align: bottom; transform: scaleX(0); transform-origin: left; animation: dotsAnim 1.3s steps(4) infinite; }
 
-  .cam-count { position: absolute; top: 14px; right: 14px; background: rgba(20,20,20,0.55); backdrop-filter: blur(14px) saturate(160%); border: 1px solid rgba(255,255,255,0.16); color: #fff; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 20px; z-index: 6; display: none; }
+  .cam-count { position: absolute; top: 14px; right: 14px; background: rgba(20,20,20,0.74); border: 1px solid rgba(255,255,255,0.16); color: #fff; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 20px; z-index: 6; display: none; }
   .cam-count.visible { display: block; }
 
   .cam-dock { position: absolute; left: 14px; right: 14px; bottom: 14px; display: flex; align-items: center; gap: 10px; z-index: 7; animation: dockIn .4s cubic-bezier(.22,1,.36,1) both; will-change: transform, opacity; }
-  .dock-btn { width: 42px; height: 42px; border-radius: 50%; background: rgba(255,255,255,0.16); backdrop-filter: blur(16px) saturate(160%); border: 1px solid rgba(255,255,255,0.22); color: #fff; font-size: 16px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; transition: background .15s, transform .12s; }
+  .dock-btn { width: 42px; height: 42px; border-radius: 50%; background: rgba(255,255,255,0.26); border: 1px solid rgba(255,255,255,0.22); color: #fff; font-size: 16px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; transition: background .15s, transform .12s; }
   .dock-btn:hover { background: rgba(255,255,255,0.26); }
   .dock-btn:active { transform: scale(0.92); }
   .dock-btn.on { background: rgba(215,25,32,0.8); border-color: rgba(255,255,255,0.3); }
@@ -440,7 +454,7 @@
 
      Y baja a `z-index: 5`: si por lo que sea algo vuelve a cruzarse, el que
      gana tiene que ser el estado, no el diagnóstico. */
-  .cam-info { position: absolute; bottom: 62px; left: 14px; background: rgba(20,20,20,0.5); backdrop-filter: blur(14px) saturate(160%); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.82); font-size: 10.5px; font-weight: 600; letter-spacing: .02em; padding: 6px 11px; border-radius: 20px; z-index: 5; max-width: calc(100% - 28px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cam-info { position: absolute; bottom: 62px; left: 14px; background: rgba(20,20,20,0.68); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.82); font-size: 10.5px; font-weight: 600; letter-spacing: .02em; padding: 6px 11px; border-radius: 20px; z-index: 5; max-width: calc(100% - 28px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 
   .modal.modal-cam { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; border-radius: 0; padding: 0; background: #000; box-shadow: none; animation: none; }
@@ -956,7 +970,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v93</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v94</span></footer>
 
 <!-- ═══ MODAL CÁMARA (agrupadora) ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1509,6 +1523,11 @@ function scanBar() {
         setTimeout(tick, 200);
         return;
       }
+      if (!tocaCaminoJS('Bar')) {
+        registrarCostoCuadro('Bar', performance.now() - t0, 200);
+        setTimeout(tick, 200);
+        return;
+      }
       const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
       let result = null;
       try {
@@ -2049,7 +2068,44 @@ const ESCALONES = [720, 1080, 1440, 2160];
    navegador no se puede parsear, se le da el mismo cuadro a ZXing, que puede
    traer el separador que el otro perdió. Nunca se pierde una lectura que antes
    entraba. */
+/* ── EL CAMINO DE JAVASCRIPT NO HACE FALTA EN TODOS LOS CUADROS ─────────────
+
+   El motor nativo solo ahorra trabajo **cuando acierta**. Apuntando a una caja
+   sin código —que es la enorme mayoría de los cuadros— se pagaba el nativo y
+   encima el camino de JavaScript entero. Medido sobre un cuadro de 720x1280
+   sin código:
+
+     jsQR                26,7 ms   ← el 83% de todo
+     estirarContraste     3,2 ms
+     getImageData         1,9 ms
+     hayPatronQR          0,4 ms
+     ───────────────────────────
+     total               32,2 ms   en esta máquina; un A17 es 5 a 10x más lento
+
+   O sea 150 a 250ms por cuadro en el A17, con el hilo principal tomado todo
+   ese tiempo. Por eso hasta las animaciones se arrastraban.
+
+   **Cuando el nativo está activo, el camino de JavaScript pasa a correr uno de
+   cada tres cuadros.** No se pierde capacidad: ese camino está para rescatar
+   lo que el nativo no ve —invertidos, impresión térmica desteñida, QR de
+   puntos— y para eso alcanza y sobra con 1,7 intentos por segundo. El costo
+   promedio por cuadro baja de 32ms a unos 12.
+
+   **Sin motor nativo —iPhone, Firefox— no cambia nada**: ahí el camino de
+   JavaScript es el único que hay y corre en todos los cuadros, como siempre. */
+const CADA_CUANTO_JS = 3;
+const cuadrosNav = {};
+
+function tocaCaminoJS(pref) {
+  if (!detectorNav[pref]) return true;          // sin nativo, siempre
+  cuadrosNav[pref] = (cuadrosNav[pref] || 0) + 1;
+  if (cuadrosNav[pref] < CADA_CUANTO_JS) return false;
+  cuadrosNav[pref] = 0;
+  return true;
+}
+
 const FORMATOS_NAV = {
+
   Agr: ['qr_code'],
   Ser: ['data_matrix', 'qr_code', 'code_128'],
   Bar: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'codabar']
@@ -2061,6 +2117,7 @@ let formatosNav = null;
 async function prepararDetector(pref) {
   detectorNav[pref] = null;
   fallosNav[pref] = 0;
+  cuadrosNav[pref] = 0;
   if (typeof BarcodeDetector === 'undefined') return;
   try {
     if (!formatosNav) formatosNav = await BarcodeDetector.getSupportedFormats();
@@ -3113,13 +3170,12 @@ function hayCodigoDenso(img) {
    temblorosa. */
 const timersViendo = {};
 function marcarViendo(pref, si) {
+  if (!si) return;        // el 99% de las llamadas: ni vale consultar el DOM
   const marco = document.querySelector('#camModal' + pref + ' .visor-frame, #camModal' + pref + ' .visor-banda');
   if (!marco) return;
-  if (si) {
-    marco.classList.add('viendo');
-    clearTimeout(timersViendo[pref]);
-    timersViendo[pref] = setTimeout(() => marco.classList.remove('viendo'), 700);
-  }
+  marco.classList.add('viendo');
+  clearTimeout(timersViendo[pref]);
+  timersViendo[pref] = setTimeout(() => marco.classList.remove('viendo'), 700);
 }
 
 function leerQRAgr(canvas, ctx, img) {
@@ -3214,7 +3270,7 @@ function scanAgr() {
 
       /* Si no pudo, el camino de siempre — que además estira el contraste y
          rescata las etiquetas desteñidas, cosa que el nativo no hace. */
-      if (!dato) {
+      if (!dato && tocaCaminoJS('Agr')) {
         const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
         dato = leerQRAgr(canvas, ctx, img);
         /* Si no entró, ¿al menos VEMOS un QR? Es la diferencia entre
@@ -3616,6 +3672,11 @@ function scanSer() {
       const nav = await leerConNavegador('Ser', canvas);
       if (nav && nav.texto && extraerSerieParaRaw(nav.texto)) {
         onDecodeSer(nav.texto);
+        registrarCostoCuadro('Ser', performance.now() - t0, 150);
+        setTimeout(tick, 150);
+        return;
+      }
+      if (!tocaCaminoJS('Ser')) {
         registrarCostoCuadro('Ser', performance.now() - t0, 150);
         setTimeout(tick, 150);
         return;
