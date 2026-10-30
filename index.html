@@ -956,7 +956,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v92</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v93</span></footer>
 
 <!-- ═══ MODAL CÁMARA (agrupadora) ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -2107,24 +2107,34 @@ async function leerConNavegador(pref, canvas) {
    Se exige que esté bajo durante **tres segundos seguidos** antes de tocar
    nada: al abrir la cámara los primeros cuadros siempre vienen lentos. */
 const fpsReal = {};
+const lecturasSeg = {};
 const midiendoFps = {};
 const segundosFlojos = {};
 const FPS_PEDIDOS = 30;
 
 function medirFpsReal(pref) {
+  avisoFpsDado[pref] = false;
+  segundosFlojos[pref] = 0;
   const v = document.getElementById('video' + pref);
   if (!v || !v.requestVideoFrameCallback || midiendoFps[pref]) return;
   midiendoFps[pref] = true;
   segundosFlojos[pref] = 0;
-  let n = 0, desde = performance.now();
+  let n = 0, desde = performance.now(), ventanas = 0;
   const paso = () => {
     if (!v.srcObject) { midiendoFps[pref] = false; fpsReal[pref] = null; return; }
     n++;
     const seg = (performance.now() - desde) / 1000;
     if (seg >= 1) {
-      fpsReal[pref] = n / seg;
+      /* La PRIMERA ventana se descarta. Mientras la cámara arranca —negocia el
+         modo, y en MÁXIMO encima se reabre entera— pasan varios segundos con
+         casi ningún cuadro. Esa ventana daba cosas como 0,4 fps y, peor, se
+         quedaba pegada en el cartel. */
+      if (++ventanas > 1) {
+        fpsReal[pref] = n / seg;
+        revisarFpsReal(pref);
+        pintarInfoCam(pref);     // el número tiene que seguir vivo, no congelarse
+      }
       n = 0; desde = performance.now();
-      revisarFpsReal(pref);
     }
     v.requestVideoFrameCallback(paso);
   };
@@ -2132,7 +2142,6 @@ function medirFpsReal(pref) {
 }
 
 function revisarFpsReal(pref) {
-  if (resGuardada(pref) !== 0) return;          // elección manual: no se toca
   const f = fpsReal[pref];
   /* Dos tercios de lo que se pidió. No es un número al azar: el piso de 30 fps
      existe para que la exposición sea corta y la mano no salga movida; por
@@ -2141,7 +2150,40 @@ function revisarFpsReal(pref) {
   if (!f || f >= FPS_PEDIDOS * 2 / 3) { segundosFlojos[pref] = 0; return; }
   if (++segundosFlojos[pref] < 3) return;
   segundosFlojos[pref] = 0;
-  bajarUnPeldano(pref);
+
+  /* En AUTO se arregla solo. */
+  if (resGuardada(pref) === 0) { bajarUnPeldano(pref); return; }
+
+  /* Elegida a mano: la elección se respeta, **pero callarse no**.
+
+     Esto salió de un caso real: un Samsung A17 quedó en `máx` —elegido con el
+     botón antes de que la app supiera medir— entregando **4 fps de los 30 que
+     declaraba**, con la cámara inservible y sin ninguna pista de por qué. El
+     ajuste automático no lo tocaba, correctamente, y el resultado era que la
+     app se quedaba mirando.
+
+     Es el mismo criterio que el aviso de "esta cámara llega a 1080p": se
+     conserva lo elegido y se dice la verdad. El cartel apunta al botón que lo
+     destraba, que es lo único que la persona necesita saber. */
+  avisarFpsBajo(pref, f);
+}
+
+/* Una sola vez por apertura de cámara: el cartel de estado es el mismo que
+   usa el escaneo, y repetirlo cada tres segundos lo volvería inusable. */
+const avisoFpsDado = {};
+
+function avisarFpsBajo(pref, f) {
+  if (avisoFpsDado[pref]) return;
+  avisoFpsDado[pref] = true;
+  const st = document.getElementById('camStatus' + pref);
+  if (!st) return;
+  st.className = 'cam-status warn';
+  st.textContent = 'Solo ' + Math.round(f) + ' fps en ' + etiquetaRes(pref) + ' · tocá Calidad';
+  setTimeout(() => {
+    if (st.textContent.indexOf(' fps en ') < 0) return;   // ya lo pisó otra cosa
+    st.className = 'cam-status';
+    st.textContent = 'Apuntá al código';
+  }, 6000);
 }
 
 const CLAVE_TECHO = 'nexo.techo.';
@@ -2669,7 +2711,13 @@ function pintarInfoCam(pref, settings) {
      se puede auditar es indistinguible de un bug. */
   const ajustada = resGuardada(pref) === 0 && techoGuardado(pref) < altoSegunPantalla() ? 'ajustada' : '';
   const nativo = detectorNav[pref] ? 'nativo' : '';
-  document.getElementById('camInfo' + pref).textContent = [res, mp, fps, amp, lente, nativo, ajustada].filter(Boolean).join(' · ') || '—';
+  /* El cartel lo escribe SOLO esta función. La agrupadora deja su "lecturas
+     por segundo" en lecturasSeg y acá se agrega, en vez de reescribir el texto
+     por su cuenta: cuando había dos dueños, el que llegaba último pisaba al
+     otro con una copia vieja y los fps quedaban congelados. */
+  const cola = lecturasSeg[pref] ? ' · ' + lecturasSeg[pref] : '';
+  document.getElementById('camInfo' + pref).textContent =
+    ([res, mp, fps, amp, lente, nativo, ajustada].filter(Boolean).join(' · ') || '—') + cola;
 }
 
 
@@ -3133,10 +3181,9 @@ function scanAgr() {
   const canvas = document.getElementById('canvasAgr');
   const ctx = canvas.getContext('2d');
   const status = document.getElementById('camStatusAgr');
-  const info = document.getElementById('camInfoAgr');
-  const infoBase = info.textContent;
 
   diagAgr = { cuadros: 0, saltados: 0, desde: Date.now() };
+  lecturasSeg['Agr'] = '';
   inicioScanAgr = Date.now();
   mostrarGloboOCR(false);
 
@@ -3144,8 +3191,9 @@ function scanAgr() {
     const seg = (Date.now() - diagAgr.desde) / 1000;
     if (seg >= 1) {
       const porSeg = (diagAgr.cuadros / seg).toFixed(1);
-      info.textContent = infoBase + ' · ' + porSeg + '/s'
+      lecturasSeg['Agr'] = porSeg + '/s'
         + (diagAgr.saltados ? ' · ' + diagAgr.saltados + ' sin cuadro' : '');
+      pintarInfoCam('Agr');
       diagAgr = { cuadros: 0, saltados: 0, desde: Date.now() };
     }
 
