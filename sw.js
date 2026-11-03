@@ -1,4 +1,4 @@
-const CACHE = 'agrupadora-v94';
+const CACHE = 'agrupadora-v95';
 
 // Propios: si alguno falla, el install falla (son imprescindibles).
 const ASSETS_LOCALES = [
@@ -16,7 +16,7 @@ const ASSETS_LOCALES = [
 // tumbar alguno y no queremos que eso rompa la instalación entera.
 const ASSETS_CDN = [
   'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js',
-  'https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js',
+  'https://cdn.jsdelivr.net/npm/@zxing/library@0.23.0/umd/index.min.js',
   'https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js',
   'https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js'
