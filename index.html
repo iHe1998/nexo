@@ -970,7 +970,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v95</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v96</span></footer>
 
 <!-- ═══ MODAL CÁMARA (agrupadora) ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1948,6 +1948,16 @@ const camaraIdx = { Agr: 0, Ser: 0, Bar: 0 };
 const LENTE_MALA    = /ultra|gran ?angular|angle|tele|zoom|depth|infrared|monochrome/i;
 const LENTE_TRASERA = /back|rear|trasera|traseira|environment|arri[eè]re|r[üu]ck/i;
 
+/* SIN USO desde la v96, y se conserva a propósito.
+
+   Sirve en iPhone, donde los nombres SÍ distinguen (`Back Camera` contra `Back
+   Ultra Wide Camera`), y ahí arregló un bug real: el sistema entregaba la gran
+   angular, que no enfoca de cerca. Hoy no se llama porque se fijó la cámara 0
+   para depurar sobre una sola configuración.
+
+   RIESGO ASUMIDO: en iPhone el índice 0 no tiene por qué ser la principal. Si
+   aparece un iPhone borroso, volver a usar esta función en prepararLentes() es
+   UNA línea. */
 function puntajeLente(label) {
   const l = (label || '').trim();
   let p = 0;
@@ -2236,6 +2246,7 @@ function medirFpsReal(pref) {
 }
 
 function revisarFpsReal(pref) {
+  if (reabriendoCam[pref]) { segundosFlojos[pref] = 0; return; }
   const f = fpsReal[pref];
   /* Dos tercios de lo que se pidió. No es un número al azar: el piso de 30 fps
      existe para que la exposición sea corta y la mano no salga movida; por
@@ -2301,6 +2312,7 @@ function altoAuto(pref) {
 
 function registrarCostoCuadro(pref, ms, intervalo) {
   if (resGuardada(pref) !== 0) return;          // elección manual: no se toca
+  if (reabriendoCam[pref]) return;              // midiendo la reapertura, no el equipo
   const m = costoCuadro[pref] || (costoCuadro[pref] = []);
   m.push(ms);
   if (m.length < MUESTRAS_AJUSTE) return;
@@ -2316,6 +2328,7 @@ function registrarCostoCuadro(pref, ms, intervalo) {
 /* Un peldaño abajo y a reabrir. Lo llaman los dos detectores de problema: el
    que mide nuestro trabajo y el que mide los cuadros que entrega la cámara. */
 function bajarUnPeldano(pref) {
+  if (reabriendoCam[pref]) return false;         // ya hay una reapertura en vuelo
   const i = PELDANOS.indexOf(altoAuto(pref));
   if (i <= 0) return false;                      // ya está en el peldaño más bajo
   try { localStorage.setItem(CLAVE_TECHO + pref, String(PELDANOS[i - 1])); } catch(e) {}
@@ -2483,14 +2496,22 @@ async function prepararLentes(pref) {
   /* Qué lente queremos: la que eligió la persona a mano, y si no eligió
      ninguna, la de mejor nombre. La elección manual gana siempre — en un
      teléfono concreto la persona VE cuál enfoca, y el puntaje solo adivina. */
+  /* LA PRIMERA TRASERA, SIEMPRE (v96).
+
+     Antes acá decidía puntajeLente() por el nombre. En Android los nombres no
+     dicen nada —`camera2 0, facing back` contra `camera2 2, facing back`— así
+     que empataban y ganaba el primero por orden de recorrido, que es un
+     resultado estable pero por accidente, no por decisión.
+
+     Ahora es por decisión: el índice 0. En Android la 0 es la principal
+     —única con autofoco en los equipos de gama media— y es la que mejor
+     resultado dio en el A17.
+
+     La elección a mano sigue mandando y el botón sigue estando: esto es el
+     punto de partida, no una restricción. */
   const guardada = lenteGuardada(pref);
   let destino = traseras.findIndex(d => d.deviceId === guardada);
-  if (destino < 0) {
-    destino = 0;
-    traseras.forEach((d, k) => {
-      if (puntajeLente(d.label) > puntajeLente(traseras[destino].label)) destino = k;
-    });
-  }
+  if (destino < 0) destino = 0;
 
   /* Y acá estaba el bug que dejaba al iPhone en la lente mala.
 
@@ -2527,7 +2548,62 @@ async function prepararLentes(pref) {
    cámara. Por eso hay tres escalones antes de darse por vencido: la lente
    elegida con el perfil, la lente elegida sola, y por último la apertura
    normal, que es la misma que se usa al abrir la cámara desde cero. */
+/* ── UNA REAPERTURA A LA VEZ, Y GANA LA ÚLTIMA PEDIDA (v96) ────────────────
+
+   Síntoma: "a veces cuando cambio de calidad no se aplica en el momento, o se
+   aplica mal, y tengo que cerrar todo".
+
+   reabrirCam() no tenía ninguna exclusión y la llaman TRES caminos: el botón
+   de calidad, el de lente y el ajuste automático de la v91. Adentro hay varios
+   `await` —la escalera de perfiles, y en MODO MÁXIMO encima un subirAMaximo()
+   que vuelve a soltar y pedir— así que una reapertura dura fácil medio segundo.
+
+   El botón de calidad es un CICLO: para llegar a 1440p desde auto hay que
+   tocarlo varias veces, y nadie espera entre toque y toque. Con dos o tres en
+   vuelo a la vez, el `ponerStream` que manda es el del getUserMedia que
+   resuelve ÚLTIMO, que no tiene por qué ser el último pedido. De ahí el "se
+   aplica mal": queda una resolución que no es la que dice el botón.
+
+   Y había un lazo peor: mientras se reabre, el bucle de escaneo sigue
+   corriendo contra un video sin stream, los cuadros tardan cualquier cosa,
+   registrarCostoCuadro() lo toma como "el equipo no da abasto" y dispara otro
+   bajarUnPeldano()... que reabre de nuevo.
+
+   Arreglo: un número de generación por herramienta. Cada llamada toma el suyo;
+   si al volver del await ya no es el vigente, la reapertura fue superada: se
+   tira el stream recién abierto y se sale sin tocar nada. Gana la ÚLTIMA
+   pedida, que es la que la persona dejó en el botón.
+
+   Y mientras hay una en vuelo, los dos ajustes automáticos no miden ni tocan
+   nada: lo que pasa durante una reapertura no dice nada del equipo. */
+const generacionCam = { Agr: 0, Ser: 0, Bar: 0 };
+const reabriendoCam = { Agr: false, Ser: false, Bar: false };
+
 async function reabrirCam(pref, aMano) {
+  const gen = ++generacionCam[pref];
+  reabriendoCam[pref] = true;
+  /* El finally libera la bandera SOLO si esta llamada sigue siendo la vigente.
+     Si la superó otra, esa otra es la dueña y la va a liberar ella.
+
+     Y tiene que ser un finally y no una asignación al final: iniciarCtrlCam()
+     y subirAMaximo() pueden tirar, y con la bandera trabada en true los dos
+     ajustes automáticos quedarían apagados para el resto de la sesión, en
+     silencio. Es el mismo error que el registro de "ya visto" de las series:
+     un estado que se escribe antes del efecto y nunca se limpia si algo falla. */
+  try {
+    return await reabrirCamInterno(pref, aMano, gen);
+  } finally {
+    if (gen === generacionCam[pref]) reabriendoCam[pref] = false;
+  }
+}
+
+async function reabrirCamInterno(pref, aMano, gen) {
+  const vigente = () => gen === generacionCam[pref];
+  const rendirse = (stream) => {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    return false;
+  };
+
   const viejo = traerStream(pref);
   if (viejo) viejo.getTracks().forEach(t => t.stop());
 
@@ -2541,13 +2617,30 @@ async function reabrirCam(pref, aMano) {
   for (const video of perfilesCam(pref, cual)) {
     try { nuevo = await navigator.mediaDevices.getUserMedia({ video }); break; } catch(e) {}
   }
+  if (!vigente()) return rendirse(nuevo);
+
   /* Si esa lente no abrió con ningún perfil, se prueba sin exigirla. */
   if (!nuevo && cual) { try { nuevo = await abrirStreamCam(pref); } catch(e) {} }
-  if (!nuevo) { if (aMano) mostrarToast('No se pudo reabrir la cámara'); return false; }
+  if (!vigente()) return rendirse(nuevo);
+  if (!nuevo) {
+    if (aMano) mostrarToast('No se pudo reabrir la cámara');
+    return false;
+  }
 
   ponerStream(pref, nuevo);
   await iniciarCtrlCam(pref, nuevo);
+  if (!vigente()) return false;        // el stream ya lo adoptó otra generación
   if (resGuardada(pref) === MAXIMO) await subirAMaximo(pref);
+  if (!vigente()) return false;
+
+  /* Borrón y cuenta nueva para los dos ajustes automáticos: las muestras de
+     antes son de otra configuración, y los primeros cuadros después de abrir
+     siempre vienen lentos. Sin esto, cambiar la calidad a mano podía disparar
+     una bajada automática por culpa de la propia reapertura. */
+  if (costoCuadro[pref]) costoCuadro[pref].length = 0;
+  segundosFlojos[pref] = 0;
+  fpsReal[pref] = null;
+
   pintarInfoCam(pref);
   return true;
 }
