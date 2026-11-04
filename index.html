@@ -454,7 +454,17 @@
 
      Y baja a `z-index: 5`: si por lo que sea algo vuelve a cruzarse, el que
      gana tiene que ser el estado, no el diagnóstico. */
-  .cam-info { position: absolute; bottom: 62px; left: 14px; background: rgba(20,20,20,0.68); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.82); font-size: 10.5px; font-weight: 600; letter-spacing: .02em; padding: 6px 11px; border-radius: 20px; z-index: 5; max-width: calc(100% - 28px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* ENVUELVE, no recorta. Con `nowrap` + `overflow: hidden` el cartel se
+     comía la COLA cuando se alargaba, y la cola son `nativo` y `ajustada` —
+     justo los dos tokens que existen para poder auditar lo que la app hizo
+     sola. Un cartel de diagnóstico que esconde el final miente igual que uno
+     congelado.
+
+     Medido a 375x812: la línea más larga pasa a dos renglones y crece 14px
+     hacia ARRIBA (722 → 708); el dock arranca en 766, así que sobra. En
+     horizontal (812x375) nunca envuelve: hay 380px de ancho y la línea más
+     larga entra entera. Verificado también a 320. */
+  .cam-info { position: absolute; bottom: 62px; left: 14px; background: rgba(20,20,20,0.68); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.82); font-size: 10.5px; font-weight: 600; letter-spacing: .02em; padding: 6px 11px; border-radius: 14px; z-index: 5; max-width: calc(100% - 28px); line-height: 1.45; }
 
 
   .modal.modal-cam { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; border-radius: 0; padding: 0; background: #000; box-shadow: none; animation: none; }
@@ -970,7 +980,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v97</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v98</span></footer>
 
 <!-- ═══ MODAL CÁMARA (agrupadora) ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -2238,6 +2248,7 @@ async function leerConNavegador(pref, canvas) {
    nada: al abrir la cámara los primeros cuadros siempre vienen lentos. */
 const fpsReal = {};
 const lecturasSeg = {};
+const ultimaDistFoco = {};   /* para detectar el rebusque del autofoco */
 const midiendoFps = {};
 const segundosFlojos = {};
 const FPS_PEDIDOS = 30;
@@ -2870,8 +2881,13 @@ async function iniciarCtrlCam(pref, stream) {
 
   const zoomRango = (caps.zoom && typeof caps.zoom === 'object' && 'max' in caps.zoom
                      && caps.zoom.max > caps.zoom.min) ? caps.zoom : null;
+  /* Lo que la lente DECLARA sobre el foco. Se guarda al abrir porque
+     getCapabilities() no cambia con el stream vivo, y porque distinguir
+     "no lo declara" de "declara que es fijo" es justamente el dato. */
+  const modosFoco = Array.isArray(caps.focusMode) ? caps.focusMode : null;
   camCtrl[pref] = { track, torch: !!caps.torch, on: false,
-                    zoomRango, zoom: zoomRango ? zoomRango.min : null };
+                    zoomRango, zoom: zoomRango ? zoomRango.min : null,
+                    modosFoco, hayDistFoco: !!caps.focusDistance };
 
   const btnLint = document.getElementById('btnLint' + pref);
   btnLint.style.display = caps.torch ? 'flex' : 'none';
@@ -2924,13 +2940,66 @@ function pintarInfoCam(pref, settings) {
      se puede auditar es indistinguible de un bug. */
   const ajustada = resGuardada(pref) === 0 && techoGuardado(pref) < altoSegunPantalla() ? 'ajustada' : '';
   const nativo = detectorNav[pref] ? 'nativo' : '';
+
+  /* ── EL FOCO ─────────────────────────────────────────────────────────────
+
+     Salió del caso del A17: "le cuesta mucho autoenfocar", y el cartel no
+     decía una palabra del foco. Tres veces este archivo buscó un "se ve mal"
+     en el lugar equivocado por no tener el dato a la vista.
+
+     **La distinción que importa, y que es fácil de arruinar:** que el
+     navegador NO exponga `focusMode` no significa que la lente no enfoque.
+     iOS no lo expone nunca y enfoca perfecto. Por eso ahí dice `foco n/d`
+     —no sé— y no "sin foco". Lo único que sí significa "esta lente no
+     enfoca" es que declare el modo `none`, y eso aparece como `foco fijo`.
+
+     | lo que se ve | qué significa |
+     |---|---|
+     | foco cont    | autofoco continuo puesto y aceptado |
+     | foco single  | enfoca de a un disparo, no en continuo |
+     | foco manual  | foco fijado a mano por alguien |
+     | foco fijo    | la lente NO enfoca: es de foco fijo |
+     | foco n/d     | el navegador no lo dice (iOS, Firefox) |
+
+     Y OJO con lo que este dato NO dice: `getSettings().focusMode` devuelve el
+     modo CONFIGURADO, no que el sensor esté logrando enfocar — el mismo pecado
+     que tenía el frameRate. Dice que la orden salió, no que haya llegado.
+
+     La distancia (`focusDistance`) sí es una medición, y es la que delata el
+     rebusque: si el número salta de un segundo a otro, el autofoco está
+     cazando. Solo se muestra cuando la lente la declara. */
+  let foco = '';
+  const ctrl = camCtrl[pref];
+  if (ctrl) {
+    if (!ctrl.modosFoco || !ctrl.modosFoco.length) foco = 'AF ?';
+    else {
+      const m = s.focusMode || ctrl.modosFoco[0];
+      foco = m === 'continuous'  ? 'AF'
+           : m === 'single-shot' ? 'AF simple'
+           : m === 'manual'      ? 'AF manual'
+           : m === 'none'        ? 'SIN AF'      // el único que sí es alarma
+           : 'AF ' + m;
+    }
+    /* La distancia solo aparece MIENTRAS CAMBIA, y ese es el punto: un número
+       que se mueve de un segundo a otro significa que el autofoco está
+       cazando, que es exactamente el síntoma a cazar. Quieto no aporta y
+       alarga la línea al pedo. */
+    if (ctrl.hayDistFoco && typeof s.focusDistance === 'number') {
+      const antes = ultimaDistFoco[pref];
+      ultimaDistFoco[pref] = s.focusDistance;
+      if (antes != null && Math.abs(antes - s.focusDistance) > 0.005)
+        foco += ' ~' + (s.focusDistance < 1
+          ? Math.round(s.focusDistance * 100) + 'cm'
+          : s.focusDistance.toFixed(1) + 'm');
+    }
+  }
   /* El cartel lo escribe SOLO esta función. La agrupadora deja su "lecturas
      por segundo" en lecturasSeg y acá se agrega, en vez de reescribir el texto
      por su cuenta: cuando había dos dueños, el que llegaba último pisaba al
      otro con una copia vieja y los fps quedaban congelados. */
   const cola = lecturasSeg[pref] ? ' · ' + lecturasSeg[pref] : '';
   document.getElementById('camInfo' + pref).textContent =
-    ([res, mp, fps, amp, lente, nativo, ajustada].filter(Boolean).join(' · ') || '—') + cola;
+    ([res, mp, fps, amp, foco, lente, nativo, ajustada].filter(Boolean).join(' · ') || '—') + cola;
 }
 
 
