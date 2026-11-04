@@ -989,7 +989,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v99</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v100</span></footer>
 
 <!-- ═══ MODAL CÁMARA (agrupadora) ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -3265,6 +3265,118 @@ function leerDesmoteado(canvas) {
   } catch(e) { radioDesmoteo++; return null; }
 }
 
+/* ── DESMOTEADO PARA SERIES: el DataMatrix de puntos (v100) ────────────────
+
+   Síntoma: "al lector de series le cuesta mucho este tipo de código. Lo lee
+   pero tengo que estar moviendo mucho para que enfoque; si le hago zoom con
+   buen enfoque, ni así lo detecta".
+
+   Es un DataMatrix de PUNTOS —chorro de tinta, cada módulo un punto suelto que
+   no toca a sus vecinos— y además invertido, blanco sobre cartón negro. Es
+   exactamente el problema de los QR de puntos de la agrupadora, pasado a
+   DataMatrix: lo que se rompe no son los datos sino el DETECTOR. Un DataMatrix
+   se encuentra por su "L" sólida (borde izquierdo e inferior), y acá esa L son
+   dos filas de puntos separados. No hay línea continua que encontrar.
+
+   **Y explica lo raro del síntoma.** Moviendo el teléfono la imagen se corre,
+   el corrido funde los puntos en líneas, la L se vuelve sólida y recién ahí
+   entra. No era que moviéndolo enfocara: era que moviéndolo se DESENFOCABA.
+   Por eso "con buen enfoque ni así": con este código, más nítido es peor.
+
+   Medido con dos fotos reales de la caja y una captura del POCO:
+
+     sin desmotear (como estaba)   0 de 15 encuadres leen, ni el más nítido
+     desmoteando                   15 de 15
+
+   ── Normalizar la escala ANTES de desmotear ──
+
+   El radio que sirve es ~0,3 del tamaño del módulo, igual que en los QR. El
+   problema es que el módulo varía muchísimo: con `máx` + zoom 3x el código
+   llena el visor y el módulo mide ~39px; lejos y en 720p, 5px. Ningún radio
+   fijo cubre eso. Por eso el recorte se lleva SIEMPRE a 480px de lado: el
+   módulo cae entre ~5 y ~20px y con tres radios alcanza. Medido, cuánto del
+   visor ocupa el código contra el radio que lo lee:
+
+     25-30%  r2      40-70%  r3      85-95%  r3 o r5
+
+   Con 400px se caían los chicos; con 560, los grandes.
+
+   Medido como en la vida real —una tanda de cajas, el radio pegado de una a
+   la otra, hasta tres cuadros por caja— sobre las dos fotos y la captura:
+
+     del 30% al 95% del visor    todas, y casi todas al PRIMER cuadro
+     25%                         2 de 3
+     20%                         ninguna: quedan ~4px por módulo
+
+   Todas con la serie correcta: ni una lectura equivocada. El límite es un
+   código que ocupa menos de un cuarto del recuadro, que es justo cuando el
+   recuadro ya está pidiendo que te acerques.
+
+   Y sale barato porque trabaja sobre 230 mil píxeles y no sobre el recorte
+   entero. Medido sobre el cartón real, cuadro sin código, recorte de 1070
+   (el del POCO en `máx`):
+
+     camino normal (lo que ya se pagaba)   15,8 ms
+     desmoteado (lo que se agrega)          6,3 ms   (~17 con un código adentro)
+     intentos por segundo                   6,0 -> 5,8
+
+   Un 3% menos de intentos para pasar de "no lo lee nunca" a "lo lee al primer
+   cuadro". Por eso corre en cada cuadro en que el camino normal falló, sin
+   freno propio: con el motor nativo activo ya hereda el uno-de-cada-tres del
+   camino de JavaScript.
+
+   **El radio que acertó se conserva**, como en la agrupadora: las cajas vienen
+   de a tandas, así que después de la primera el resto entra al primer intento.
+
+   El desenfoque va en el MISMO drawImage que achica: una sola pasada. El
+   filtro del canvas trabaja en píxeles de destino, así que blur(3px) es 3px a
+   escala 480. Medido contra hacerlo en dos pasadas (achicar y después
+   desenfocar): en ninguno de los 21 casos lee una y no la otra.
+
+   El lienzo se reusa —crear uno por cuadro es basura para el recolector, y en
+   el A17 se nota— pero se LIMPIA antes de dibujar. El desenfoque deja el borde
+   semitransparente (medido: la fila entera), y en un lienzo reusado ese borde
+   se mezclaba con el cuadro anterior.
+
+   **Invertido primero, porque es lo único que lee.** Medido sobre 63
+   combinaciones de foto, tamaño y radio: invertido leyó 36, normal NINGUNA.
+   Es blanco sobre negro, así que tiene sentido. El normal queda de segundo
+   para los de puntos negros sobre etiqueta blanca, que también existen. */
+const LADO_DESMOTEO_SER = 480;
+const RADIOS_DESMOTEO_SER = [3, 2, 5];
+let radioDesmoteoSer = 0;
+let lienzoDesmoteoSer = null;
+
+function leerSerieDesmoteada(canvas, reader) {
+  try {
+    if (!lienzoDesmoteoSer) {
+      lienzoDesmoteoSer = document.createElement('canvas');
+      lienzoDesmoteoSer.width = lienzoDesmoteoSer.height = LADO_DESMOTEO_SER;
+    }
+    const d = lienzoDesmoteoSer, x = d.getContext('2d');
+    const radio = RADIOS_DESMOTEO_SER[radioDesmoteoSer % RADIOS_DESMOTEO_SER.length];
+    x.clearRect(0, 0, d.width, d.height);
+    x.filter = 'blur(' + radio + 'px)';
+    x.drawImage(canvas, 0, 0, d.width, d.height);
+    x.filter = 'none';
+    const im = x.getImageData(0, 0, d.width, d.height);
+    estirarContraste(im);
+    x.putImageData(im, 0, 0);
+
+    const lum = new ZXing.HTMLCanvasElementLuminanceSource(d);
+    let r = null;
+    try { r = reader.decodeWithState(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum.invert()))); }
+    catch(e1) {
+      try { r = reader.decodeWithState(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum))); }
+      catch(e2) {}
+    }
+    try { reader.reset(); } catch(e) {}
+    if (r) return r.getText();
+    radioDesmoteoSer++;                    // solo avanza cuando falla
+    return null;
+  } catch(e) { radioDesmoteoSer++; return null; }
+}
+
 /* ¿HAY UN QR EN EL CUADRO, aunque no se pueda leer?
 
    Los tres cuadrados de las esquinas de un QR ("finder patterns") tienen una
@@ -4105,10 +4217,21 @@ function scanSer() {
         } catch(e2) {}
       }
       if (result) onDecodeSer(result.getText());
-      /* Si no entró, ¿al menos vemos un código? Distingue "acercate" de
-         "lo veo pero no lo puedo leer". Solo cuando falló: si entró, el tilde
-         ya dice todo, y así no se paga la lectura del canvas al pedo. */
-      else marcarViendo('Ser', hayCodigoDenso(ctx.getImageData(0, 0, canvas.width, canvas.height)));
+      else {
+        /* El camino normal no pudo: puede ser un DataMatrix de PUNTOS, que
+           el detector no encuentra nunca por nítido que esté. Desmotear
+           cuesta menos que lo que ya se pagó, así que se intenta siempre. */
+        const dm = leerSerieDesmoteada(canvas, reader);
+        if (dm) onDecodeSer(dm);
+        /* Si no entró, ¿al menos vemos un código? Distingue "acercate" de
+           "lo veo pero no lo puedo leer".
+
+           OJO: este detector NO ve los DataMatrix de puntos — medido, 1 de 9
+           crudos, y también 1 de 9 desmoteados. Busca corridas cuyo ancho sea
+           múltiplo de un módulo, y puntos sueltos no las forman. Así que con
+           estos códigos el marco no se pone ámbar. Queda pendiente. */
+        else marcarViendo('Ser', hayCodigoDenso(ctx.getImageData(0, 0, canvas.width, canvas.height)));
+      }
       registrarCostoCuadro('Ser', performance.now() - t0, 150);
     }
     /* 150 y no 250: el ciclo es "decodificar + esperar", así que la espera es
