@@ -195,9 +195,9 @@
      igual le quedan las puntas afuera, que es justo donde están los patrones
      de inicio y fin sin los cuales no decodifica nada. */
   /* 96% del ancho, no 84%: el rectángulo ES la zona que se lee (ver
-     frameBanda), así que cada punto que se le saca de ancho es distancia de
-     lectura que se pierde. El 4% que queda es solo para que se vea que es un
-     recorte y no el borde de la pantalla.
+     frameDelVisor), así que cada punto que se le saca de ancho es distancia
+     de lectura que se pierde. El 4% que queda es solo para que se vea que es
+     un recorte y no el borde de la pantalla.
 
      El alto sale del ancho (8/3) pero con tope del 40% de la pantalla, y ese
      tope es lo que lo mantiene con forma de banda al girar: sin él, en
@@ -970,7 +970,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v96</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v97</span></footer>
 
 <!-- ═══ MODAL CÁMARA (agrupadora) ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1256,11 +1256,25 @@ async function leerNumeroImpreso() {
   const canvas = document.getElementById('canvasAgr');
   if (!canvas || !canvas.width) return;
 
-  /* Copia del cuadro actual: el bucle de escaneo sigue corriendo y pisaría el
-     canvas mientras el OCR trabaja. */
+  /* CUADRO COMPLETO, no una copia de canvasAgr.
+
+     Desde la v97 el bucle de escaneo recorta al visor, y el número impreso que
+     busca el OCR casi nunca está adentro del visor: está arriba o abajo, en
+     otro renglón de la etiqueta. Copiando el lienzo del bucle, el OCR vería
+     solo el recuadro y se perdería justo lo que viene a leer.
+
+     Además le conviene: un disparo único puede pagar el cuadro entero a
+     resolución completa, que es lo mejor posible para reconocer texto. */
+  const video = document.getElementById('videoAgr');
+  const vw = video && video.videoWidth, vh = video && video.videoHeight;
   const copia = document.createElement('canvas');
-  copia.width = canvas.width; copia.height = canvas.height;
-  copia.getContext('2d').drawImage(canvas, 0, 0);
+  if (vw && vh) {
+    copia.width = vw; copia.height = vh;
+    copia.getContext('2d').drawImage(video, 0, 0);
+  } else {
+    copia.width = canvas.width; copia.height = canvas.height;
+    copia.getContext('2d').drawImage(canvas, 0, 0);
+  }
 
   status.className = 'cam-status';
   status.textContent = 'Leyendo el número impreso';
@@ -1331,7 +1345,7 @@ let streamBar = null, camBarAbierta = false, scanLoopBar = false;
 let lintBarActiva = false;
 
 /* Un código de barras es una TIRA: ancho y bajo. Recortar un cuadrado centrado
-   —lo que hace frameVisor para las series— le corta las puntas, que es
+   —el visor cuadrado de agrupadora y series— le corta las puntas, que es
    justamente donde están los patrones de inicio y fin. Sin ellos no decodifica.
 
    EL RECORTE ES EL RECTÁNGULO DIBUJADO. No una fracción fija del cuadro: se
@@ -1371,7 +1385,19 @@ let lintBarActiva = false;
 const ANCHO_BANDA_MAX = 2400;
 const ALTO_BANDA_MAX  = 240;
 
-function frameBanda(video, marco, canvas, ctx, maxAncho, maxAlto) {
+/* EL RECORTE SALE DEL RECTÁNGULO DIBUJADO, para las tres herramientas.
+
+   Se llamaba frameBanda porque nació para el lector de barras, pero no tiene
+   nada de banda: toma el elemento del visor que se le pase y devuelve esa
+   zona. Desde la v97 la usan las tres, cada una con SU visor —cuadrado en
+   agrupadora y series, franja en barras— y con sus propios topes.
+
+   **La guía no puede mentir.** Si se toca el CSS del visor, el recorte lo
+   sigue solo. Ese es el punto entero: el bug viejo de la agrupadora no era
+   recortar, era recortar una zona que NO estaba dibujada en ninguna parte, así
+   que la persona apuntaba a cualquier lado y la lectura fallaba sin motivo
+   visible. */
+function frameDelVisor(video, marco, canvas, ctx, maxAncho, maxAlto) {
   const vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return false;
   const rv = video.getBoundingClientRect();
@@ -1552,7 +1578,7 @@ function scanBar() {
        por segundo, no es un bucle de arrastre. */
     const t0 = performance.now();
     if (reader && video.readyState === 4 &&
-        frameBanda(video, marco, canvas, ctx, ANCHO_BANDA_MAX, ALTO_BANDA_MAX)) {
+        frameDelVisor(video, marco, canvas, ctx, ANCHO_BANDA_MAX, ALTO_BANDA_MAX)) {
       const nav = await leerConNavegador('Bar', canvas);
       if (nav && nav.texto) {
         onDecodeBar(nav.texto, nav.formato);
@@ -2960,42 +2986,40 @@ async function aplicarLinterna(pref) {
   catch(e) { return false; }
 }
 
-/* Recorta el centro del cuadro (zona del visor) y lo escala:
-   aprovecha la resolución alta sin analizar millones de píxeles por frame. */
-function frameVisor(video, canvas, ctx, frac, maxLado) {
-  const vw = video.videoWidth, vh = video.videoHeight;
-  if (!vw || !vh) return false;
-  const lado = Math.min(vw, vh) * frac;
-  const dest = Math.min(maxLado, Math.round(lado));
-  canvas.width = dest; canvas.height = dest;
-  ctx.drawImage(video, (vw - lado) / 2, (vh - lado) / 2, lado, lado, 0, 0, dest, dest);
-  return true;
-}
+/* LA AGRUPADORA TAMBIÉN RECORTA, desde la v97 — y hay historia acá.
 
-/* La agrupadora analiza el CUADRO COMPLETO, no un recorte centrado.
+   Hasta la v96 analizaba el CUADRO COMPLETO, y eso estaba bien **en su
+   momento**: antes el recorte era un cuadrado centrado calculado con una
+   constante, que no coincidía con nada dibujado. Un código en el tercio de
+   arriba o de abajo se volvía invisible y desde afuera se veía como "a veces
+   lee y a veces no". Volver al cuadro completo fue el arreglo correcto.
 
-   El cuadrado de frameVisor cubre apenas el 48% del alto en vertical: un código
-   en el tercio superior o inferior de la pantalla era invisible para el
-   decodificador por más cerca que se lo pusiera. Así trabajaba la v25, que es
-   la versión que leía bien, y frameVisor ni siquiera existía entonces.
+   Lo que cambió es que ahora el recorte **sale del rectángulo que se dibuja**
+   (frameDelVisor), igual que en barras desde la v80. La zona analizada y la
+   guía son la misma cosa, así que la persona ve exactamente a dónde apuntar.
+   El bug viejo no puede volver mientras eso se mantenga.
 
-   El cuadro se escala para que el lado largo no pase de MAX_LADO_AGR. Eso deja
-   el mismo presupuesto de píxeles que tenía v25 (~920k) pero partiendo de una
-   fuente de 1080p en vez de 720p, así que además llega un poco más limpio.
+   Y el recorte no es solo más barato: es que **el desorden del fondo es lo que
+   voltea al detector**. Medido sobre un cuadro de 1080x1920 con grano de cartón
+   y texto impreso alrededor, con el MISMO QR: el cuadro completo no lo lee ni
+   con jsQR ni con ZXing, y el recorte exacto lo lee sin despeinarse. Buscar
+   patrones de esquina entre renglones de texto genera candidatos falsos.
 
-   Las series NO usan esto: ahí el DataMatrix se escanea de cerca y centrado, el
-   recorte les sirve, y funcionan bien. No unificar. */
-const MAX_LADO_AGR = 1280;
+   Cuánto más lejos se lee (fracción del ancho de PANTALLA que tiene que ocupar
+   el QR; más chico = más lejos), con grano suave y texto:
 
-function frameCompleto(video, canvas, ctx, maxLado) {
-  const vw = video.videoWidth, vh = video.videoHeight;
-  if (!vw || !vh) return false;
-  const k = Math.min(1, maxLado / Math.max(vw, vh));
-  canvas.width  = Math.round(vw * k);
-  canvas.height = Math.round(vh * k);
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  return true;
-}
+     nítido          completo 0,090   visor 0,045   ← el doble de lejos
+     desenfoque 2px  completo 0,165   visor 0,165
+     desenfoque 4px  completo 0,345   visor 0,315
+
+   O sea: con la imagen nítida gana claro, y con desenfoque empatan — coherente
+   con lo ya sabido, que el desenfoque mata módulos y no lo arregla el muestreo.
+
+   **EL OCR NO USA ESTE LIENZO.** El número impreso suele estar ARRIBA o ABAJO
+   del código, fuera del visor, así que leerNumeroImpreso() se dibuja su propio
+   cuadro completo desde el video. Si alguna vez vuelve a copiar canvasAgr, el
+   OCR se queda ciego a medio renglón. */
+const MAX_LADO_AGR = 900;
 
 async function abrirCamAgr() {
   const status = document.getElementById('camStatusAgr');
@@ -3388,7 +3412,11 @@ function scanAgr() {
     if (ocupadoCuadro.Agr) return;
     if (video.readyState !== video.HAVE_ENOUGH_DATA) { diagAgr.saltados++; return; }
     const t0 = performance.now();
-    if (!frameCompleto(video, canvas, ctx, MAX_LADO_AGR)) { diagAgr.saltados++; return; }
+    const marcoAgr = document.querySelector('#camModalAgr .visor-frame');
+    if (!marcoAgr ||
+        !frameDelVisor(video, marcoAgr, canvas, ctx, MAX_LADO_AGR, MAX_LADO_AGR)) {
+      diagAgr.saltados++; return;
+    }
     diagAgr.cuadros++;
     ocupadoCuadro.Agr = true;
 
@@ -3797,7 +3825,15 @@ function scanSer() {
   async function tick() {
     if (!scanLoopSer) return;
     const t0 = performance.now();
-    if (video.readyState === 4 && frameVisor(video, canvas, ctx, 0.85, 1400)) {
+    /* El recorte sale del visor dibujado, no de un 0.85 calculado que no
+       correspondía a nada en pantalla. Medido con un DataMatrix GS1 real —que
+       recién se puede generar desde la v95— lee a la MISMA distancia: 0,08 del
+       ancho con imagen nítida, igual que antes, con bastantes menos píxeles.
+       El tope de 1400 no se toca: el DataMatrix es denso y es lo único que
+       esta herramienta tiene que leer bien. */
+    const marcoSer = document.querySelector('#camModalSer .visor-frame');
+    if (video.readyState === 4 && marcoSer &&
+        frameDelVisor(video, marcoSer, canvas, ctx, 1400, 1400)) {
       /* El motor del navegador primero, pero sin creerle a ciegas: si lo que
          trae no se puede parsear —puede haber perdido el separador GS1— se le
          da el mismo cuadro a ZXing, que quizás sí lo traiga. */
