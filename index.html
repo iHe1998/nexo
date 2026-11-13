@@ -1035,7 +1035,7 @@
 
 </main>
 
-<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v101</span></footer>
+<footer>Herramienta interna · <span>Nuñez Joel</span> · CyPe <span class="footer-version" id="footerVer">v102</span></footer>
 
 <!-- ═══ MODAL CÁMARA (agrupadora) ═══════════════════════════════════════ -->
 <div class="modal-overlay" id="camModalAgr">
@@ -1814,9 +1814,21 @@ function borrarTodoBar() {
   actualizarContadorBar();
 }
 
+/* Uno por renglón, como siempre, pero a prueba de Excel (v102). Pegado como
+   texto plano, Excel convierte en número todo lo que lo parece: un EAN-13 sale
+   en notación científica, se pierden los ceros de adelante y un Code 128
+   numérico de más de 15 dígitos pierde los últimos para siempre.
+
+   copiarParaExcel escribe además una tabla con las celdas marcadas como
+   texto, que es lo que toma Excel; un chat o un campo de texto siguen
+   recibiendo el mismo texto plano de antes. Sin menú, a diferencia de series:
+   acá nunca hubo concatenado, y el botón sigue siendo de un toque. */
 function copiarTodoBar(btnId) {
   if (!barras.length) { mostrarToast('No hay códigos para copiar'); return; }
-  copiar(barras.map(function (b) { return b.cod; }).join('\n'), btnId);
+  if (!navigator.clipboard) { mostrarToast('Este navegador no deja copiar desde acá'); return; }
+  copiarParaExcel(barras.map(function (b) { return b.cod; }))
+    .then(function () { marcarCopiado(document.getElementById(btnId)); })
+    .catch(function () { mostrarToast('No se pudo copiar. Probá de nuevo.'); });
 }
 
 /* ═══ UTILIDADES COMPARTIDAS ═════════════════════════════════════════════ */
@@ -5064,18 +5076,15 @@ function renderSeries() {
   }
 
   lista.innerHTML = agruparPorSku(series).map(g => {
-    const filas = g.items.map((s, i) => {
-      const badge = s.configurado
-        ? '<span class="badge-verif ok">✓</span>'
-        : '<span class="badge-verif warn">⚠</span>';
-      return `<div class="item-row">
+    /* Sin el ✓ / ⚠ de cada fila (v102). Con un grupo por producto ya lo dicen
+       la cabecera ("Sin configurar" en ámbar) y el color de la serie, y con
+       él la fila no entraba en un renglón: la ✕ caía sola abajo. */
+    const filas = g.items.map((s, i) => `<div class="item-row">
         <span class="item-num">${i + 1}</span>
         <span class="item-val${s.configurado ? '' : ' warncolor'}">${escapeHtml(s.serie)}</span>
-        ${badge}
         <button class="btn-sm" id="cpS${s.id}" onclick="copiar('${s.serie}','cpS${s.id}')">Copiar</button>
         <button class="btn-sm del" onclick="borrarSerie(${s.id})">✕</button>
-      </div>`;
-    }).join('');
+      </div>`).join('');
 
     /* "Configurar" es del PRODUCTO, no de cada serie: antes iba en cada fila,
        y con el grupo siendo un solo producto eran N botones para lo mismo.
